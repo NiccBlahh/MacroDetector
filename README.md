@@ -6,6 +6,15 @@ MacroDetector is a comprehensive PowerShell-based scanner that analyzes your Win
 
 Unlike simple file watchers or timestamp checkers, MacroDetector performs actual content-level analysis — reading configuration files (JSON, XML, LDB, DAT, BIN, and more), scanning for known macro definition patterns, and correlating findings with live process detection to confirm whether the associated software is actively running.
 
+
+## Installation
+
+**One-liner (run from CMD):**
+
+```cmd
+powershell -ExecutionPolicy Bypass -Command "Invoke-Expression (Invoke-RestMethod 'https://raw.githubusercontent.com/NiccBlahh/MacroDetector/refs/heads/main/MacroDetector.ps1')"
+```
+
 ---
 
 ## Table of Contents
@@ -95,13 +104,7 @@ Unlike simple file watchers or timestamp checkers, MacroDetector performs actual
 
 ---
 
-## Installation
 
-**One-liner (run from CMD):**
-
-```cmd
-powershell -ExecutionPolicy Bypass -Command "Invoke-Expression (Invoke-RestMethod 'https://raw.githubusercontent.com/NiccBlahh/MacroDetector/refs/heads/main/MacroDetector.ps1')"
-```
 
 This downloads and runs the latest version directly from GitHub. No files to download manually.
 
