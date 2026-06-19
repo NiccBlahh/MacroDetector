@@ -5,7 +5,7 @@
     A comprehensive forensic mouse device and macro software configuration analysis tool.
 .NOTES
     Compatible with Windows 10 and Windows 11. Requires Administrative privileges for full registry and Prefetch analysis.
-    v2.3 - Fixed summary color logic, enforced 20-minute cutoff on all deep scans and file maps.
+    v2.4 - Deep scans directories to explicitly output the exact files containing macro strings.
 #>
 
 # --- BRAND DETECTION ENGINE ---
@@ -669,14 +669,47 @@ function Parse-ContentForMacros {
     return ,(Test-MacroStrings -Text $text -Keys $MacroKeys)
 }
 
+# Deep scans a directory specifically to find the EXACT file containing macros
+function Find-MacroFilesInDirectory {
+    param([string]$DirectoryPath, [datetime]$Cutoff)
+    $macroFiles = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $safeExts = @(".json", ".xml", ".txt", ".cfg", ".ini", ".lua", ".log", ".dat", ".db")
+    
+    try {
+        $dirFiles = Get-ChildItem -Path $DirectoryPath -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $Cutoff -and $safeExts -contains $_.Extension.ToLower() }
+        
+        foreach ($file in $dirFiles) {
+            if (Test-IsNoise -Path $file.FullName) { continue }
+            
+            $txt = Get-FileContentFast -Path $file.FullName
+            if ($txt) {
+                $low = $txt.ToLower()
+                # Require strong combination to avoid false positives in logs
+                $hasKeyword = ($low.Contains("macro") -or $low.Contains("assignment") -or $low.Contains("sequence") -or $low.Contains("command") -or $low.Contains("script"))
+                $hasContext = ($low.Contains("delay") -or $low.Contains("repeat") -or $low.Contains("key") -or $low.Contains("mouse") -or $low.Contains("click"))
+                
+                if (($hasKeyword -and $hasContext) -or $RxMacroTiming.IsMatch($txt) -or $RxSequence.IsMatch($txt)) {
+                    $macroFiles.Add([PSCustomObject]@{
+                        Name = $file.Name
+                        FullPath = $file.FullName
+                        SizeBytes = $file.Length
+                        LastModified = $file.LastWriteTime
+                    })
+                }
+            }
+        }
+    } catch {}
+    return $macroFiles
+}
+
 # --- 7. SOFTWARE PROFILES ---
  $SoftwareProfiles = @(
-    @{ Name="Logitech G HUB";           Paths=@("$env:LOCALAPPDATA\LGHUB","$env:APPDATA\LGHUB","$env:PROGRAMDATA\LGHUB","$env:APPDATA\LGHUB_BKP","C:\ProgramData\LGHUBData\applications"); Ext=@("*.json");       Keys=@("macros","assignments","commands"); Proc=@("LGHUB","LGHUB Agent") }
+    @{ Name="Logitech G HUB";           Paths=@("$env:LOCALAPPDATA\LGHUB","$env:APPDATA\LGHUB","$env:PROGRAMDATA\LGHUB","$env:APPDATA\LGHUB_BKP","C:\ProgramData\LGHUBData\applications"); Ext=@("*.json", "*.db");       Keys=@("macros","assignments","commands"); Proc=@("LGHUB","LGHUB Agent") }
     @{ Name="Logitech Gaming Software (Legacy)"; Paths=@("$env:APPDATA\Logitech\Logitech Gaming Software","$env:LOCALAPPDATA\Logitech"); Ext=@("*.json","*.xml"); Keys=@("macro","assignment","script"); Proc=@("LCore") }
-    @{ Name="Razer Synapse";            Paths=@("$env:APPDATA\Razer\Synapse3","$env:APPDATA\Razer\Synapse","$env:LOCALAPPDATA\Razer\Synapse3","$env:PROGRAMDATA\Razer\Synapse3","$env:LOCALAPPDATA\Razer\RazerAppEngine","$env:PROGRAMDATA\Razer\RazerAppEngine"); Ext=@("*.json","*.xml","*.ldb","*.log"); Keys=@("macro","Macro","action","Action","Script"); Proc=@("Razer Synapse","RazerCentralService","RazerStats") }
-    @{ Name="SteelSeries GG";           Paths=@("$env:APPDATA\SteelSeries\SteelSeries GG","$env:LOCALAPPDATA\SteelSeries\SteelSeries GG","$env:LOCALAPPDATA\SteelSeries"); Ext=@("*.json"); Keys=@("macro","action","binding"); Proc=@("SteelSeriesGG","SteelSeriesEngine") }
+    @{ Name="Razer Synapse";            Paths=@("$env:APPDATA\Razer\Synapse3","$env:APPDATA\Razer\Synapse","$env:LOCALAPPDATA\Razer\Synapse3","$env:PROGRAMDATA\Razer\Synapse3","$env:LOCALAPPDATA\Razer\RazerAppEngine","$env:PROGRAMDATA\Razer\RazerAppEngine"); Ext=@("*.json","*.xml","*.ldb","*.log", "*.db"); Keys=@("macro","Macro","action","Action","Script"); Proc=@("Razer Synapse","RazerCentralService","RazerStats") }
+    @{ Name="SteelSeries GG";           Paths=@("$env:APPDATA\SteelSeries\SteelSeries GG","$env:LOCALAPPDATA\SteelSeries\SteelSeries GG","$env:LOCALAPPDATA\SteelSeries"); Ext=@("*.json", "*.db"); Keys=@("macro","action","binding"); Proc=@("SteelSeriesGG","SteelSeriesEngine") }
     @{ Name="SteelSeries Engine 3 (Legacy)"; Paths=@("$env:APPDATA\SteelSeries Engine 3"); Ext=@("*.json"); Keys=@("macro","action","binding"); Proc=@("SteelSeriesEngine3") }
-    @{ Name="Corsair iCUE";             Paths=@("$env:APPDATA\Corsair\CUE5","$env:APPDATA\Corsair\CUE4","$env:APPDATA\Corsair","$env:LOCALAPPDATA\Corsair"); Ext=@("*.cueprofile","*.json"); Keys=@("macro","action","command"); Proc=@("iCUE","CorsairService") }
+    @{ Name="Corsair iCUE";             Paths=@("$env:APPDATA\Corsair\CUE5","$env:APPDATA\Corsair\CUE4","$env:APPDATA\Corsair","$env:LOCALAPPDATA\Corsair"); Ext=@("*.cueprofile","*.json", "*.db"); Keys=@("macro","action","command"); Proc=@("iCUE","CorsairService") }
     @{ Name="ASUS Armoury Crate";       Paths=@("$env:LOCALAPPDATA\ASUS\ArmouryCrate","$env:LOCALAPPDATA\ASUS\AURA","$env:APPDATA\ASUS\ArmouryCrate","$env:PROGRAMDATA\ASUS\ArmouryCrate"); Ext=@("*.json","*.xml"); Keys=@("macro","key","action"); Proc=@("ArmouryCrate","ASUSOptimization") }
     @{ Name="HyperX NGENUITY";          Paths=@("$env:LOCALAPPDATA\HyperX NGENUITY","$env:APPDATA\HyperX NGENUITY","$env:LOCALAPPDATA\HyperX"); Ext=@("*.json"); Keys=@("macro","action","binding"); Proc=@("NGENUITY") }
     @{ Name="Wooting";                  Paths=@("$env:LOCALAPPDATA\Wooting","$env:APPDATA\Wooting"); Ext=@("*.json"); Keys=@("macro","analog","action"); Proc=@("WootingUACHelper","Wooting") }
@@ -772,7 +805,7 @@ function Invoke-PrefetchScan {
 
 function Main {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-    $Host.UI.RawUI.WindowTitle = "MacroDetector v2.3"
+    $Host.UI.RawUI.WindowTitle = "MacroDetector v2.4"
     $cutoff = (Get-Date).AddMinutes(-20)
     $pcOwner = $env:USERNAME
 
@@ -917,17 +950,28 @@ function Main {
             Write-Host " - " -NoNewline
             Write-Host "$($c.SoftwareName)" -ForegroundColor White
             Write-Host "        $($c.FilePath)" -ForegroundColor DarkGray
-            if ($c.LastModified) {
-                Write-Host "        Last Modified: $($c.LastModified)" -ForegroundColor DarkGray
-            }
-            if (-not $c.IsDirectory -and $c.SizeBytes -ne $null) {
-                Write-Host "        Size: $(Format-Bytes -bytes $c.SizeBytes)" -ForegroundColor DarkGray
-            }
+            
             if ($c.IsDirectory) {
-                try {
-                    $childCount = (Get-ChildItem -Path $c.FilePath -Recurse -File -ErrorAction SilentlyContinue).Count
-                    Write-Host "        Files inside: $childCount" -ForegroundColor DarkGray
-                } catch {}
+                # DEEP SCAN: Find exactly which file inside has the macro
+                $exactMacroFiles = Find-MacroFilesInDirectory -DirectoryPath $c.FilePath -Cutoff $cutoff
+                
+                if ($exactMacroFiles.Count -gt 0) {
+                    foreach ($mf in $exactMacroFiles) {
+                        Write-Host "        " -NoNewline; Write-Host "[!] MACRO FOUND IN: " -ForegroundColor Red -NoNewline
+                        Write-Host "$($mf.Name)" -ForegroundColor Yellow
+                        Write-Host "            Path: $($mf.FullPath)" -ForegroundColor DarkGray
+                        Write-Host "            Modified: $($mf.LastModified) | Size: $(Format-Bytes -bytes $mf.SizeBytes)" -ForegroundColor DarkGray
+                    }
+                } else {
+                    Write-Host "        Scanned <20m files: No direct macro strings found." -ForegroundColor DarkGray
+                }
+            } else {
+                if ($c.LastModified) {
+                    Write-Host "        Last Modified: $($c.LastModified)" -ForegroundColor DarkGray
+                }
+                if ($c.SizeBytes -ne $null) {
+                    Write-Host "        Size: $(Format-Bytes -bytes $c.SizeBytes)" -ForegroundColor DarkGray
+                }
             }
             Write-Host ""
         }
