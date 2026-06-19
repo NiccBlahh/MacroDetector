@@ -5,7 +5,7 @@
     A comprehensive forensic mouse device and macro software configuration analysis tool.
 .NOTES
     Compatible with Windows 10 and Windows 11. Requires Administrative privileges for full registry and Prefetch analysis.
-    v2.4 - Deep scans directories to explicitly output the exact files containing macro strings.
+    v2.5 - Fixed explicit macro file pointing and wording.
 #>
 
 # --- BRAND DETECTION ENGINE ---
@@ -66,7 +66,6 @@ function Detect-Brand {
     return "Unknown"
 }
 
-# --- WINDOWS FILE TIME CONVERTER ---
 function Get-InstallDate {
     param([string]$regPath, [string]$valueName = "0065")
     try {
@@ -86,7 +85,6 @@ function Get-InstallDate {
     return $null
 }
 
-# --- CONNECTION TYPE GUESSER ---
 function Guess-ConnectionType {
     param([string]$deviceIdStr)
     if ([string]::IsNullOrEmpty($deviceIdStr)) { return "Unknown" }
@@ -96,7 +94,6 @@ function Guess-ConnectionType {
     return "Unknown"
 }
 
-# --- 1. HARDWARE DETECTORS ---
 function Get-ConnectedMice {
     $results = @()
     try {
@@ -105,17 +102,10 @@ function Get-ConnectedMice {
             $name = if ($obj.Name)         { $obj.Name.Trim() }         else { "" }
             $mfr  = if ($obj.Manufacturer) { $obj.Manufacturer.Trim() } else { "" }
             $id   = if ($obj.PNPDeviceID)  { $obj.PNPDeviceID }         else { "" }
-
             $results += [PSCustomObject]@{
-                Name           = $name
-                Manufacturer   = $mfr
-                DeviceId       = $id
-                IsConnected    = $true
-                Brand          = Detect-Brand -text "$name $mfr $id"
-                ConnectionType = Guess-ConnectionType -deviceIdStr $id
-                ConnectedAt    = Get-InstallDate -regPath "SYSTEM\CurrentControlSet\Enum\$id"
-                DisconnectedAt = $null
-                Source         = "WMI"
+                Name = $name; Manufacturer = $mfr; DeviceId = $id; IsConnected = $true
+                Brand = Detect-Brand -text "$name $mfr $id"; ConnectionType = Guess-ConnectionType -deviceIdStr $id
+                ConnectedAt = Get-InstallDate -regPath "SYSTEM\CurrentControlSet\Enum\$id"; DisconnectedAt = $null; Source = "WMI"
             }
         }
     } catch {}
@@ -127,36 +117,24 @@ function Scan-EnumKey {
     $results = @()
     $rootSubKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($regPath)
     if (-not $rootSubKey) { return @() }
-
     foreach ($vid in $rootSubKey.GetSubKeyNames()) {
         $vidSubKey = $rootSubKey.OpenSubKey($vid)
         if (-not $vidSubKey) { continue }
-
         foreach ($instance in $vidSubKey.GetSubKeyNames()) {
             $instSubKey = $vidSubKey.OpenSubKey($instance)
             if (-not $instSubKey) { continue }
-
             $friendly = if ($instSubKey.GetValue("FriendlyName")) { $instSubKey.GetValue("FriendlyName").ToString() } else { "" }
             $desc     = if ($instSubKey.GetValue("DeviceDesc"))   { $instSubKey.GetValue("DeviceDesc").ToString()   } else { "" }
             $instSubKey.Close()
-
             $combined = "$friendly $desc $vid $instance"
             $brand    = Detect-Brand -text $combined
             if ($brand -eq "Unknown") { continue }
-
             $finalName = if (-not [string]::IsNullOrEmpty($friendly)) { $friendly } else { $desc }
             $fullId    = "$regPath\$vid\$instance"
-
             $results += [PSCustomObject]@{
-                Name           = $finalName
-                Manufacturer   = ""
-                DeviceId       = $fullId
-                Brand          = $brand
+                Name = $finalName; Manufacturer = ""; DeviceId = $fullId; Brand = $brand
                 ConnectionType = if ($regPath.Contains("HID")) { "USB HID" } else { "USB" }
-                IsConnected    = $false
-                ConnectedAt    = Get-InstallDate -regPath $fullId
-                DisconnectedAt = $null
-                Source         = "Registry"
+                IsConnected = $false; ConnectedAt = Get-InstallDate -regPath $fullId; DisconnectedAt = $null; Source = "Registry"
             }
         }
         $vidSubKey.Close()
@@ -174,228 +152,125 @@ function Get-RegistryHistory {
 
 function Get-BluetoothDevices {
     $results = @()
-
     $btKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Devices")
     if ($btKey) {
         foreach ($key in $btKey.GetSubKeyNames()) {
             $devSubKey = $btKey.OpenSubKey($key)
             if (-not $devSubKey) { continue }
-
             $nameRaw = $devSubKey.GetValue("Name")
             $name    = if ($nameRaw) { [System.Text.Encoding]::UTF8.GetString($nameRaw).TrimEnd("`0") } else { "" }
             $brand   = Detect-Brand -text $name
-
             $lastSeen = $null
             $lastSeenRaw = $devSubKey.GetValue("LastSeen")
-            if ($lastSeenRaw) {
-                try {
-                    $ft = [BitConverter]::ToInt64($lastSeenRaw, 0)
-                    $lastSeen = [DateTime]::FromFileTimeUtc($ft).ToLocalTime()
-                } catch {}
-            }
+            if ($lastSeenRaw) { try { $ft = [BitConverter]::ToInt64($lastSeenRaw, 0); $lastSeen = [DateTime]::FromFileTimeUtc($ft).ToLocalTime() } catch {} }
             $devSubKey.Close()
-
             if ($brand -eq "Unknown") { continue }
-
-            $results += [PSCustomObject]@{
-                Name           = $name
-                Manufacturer   = ""
-                DeviceId       = $key
-                Brand          = $brand
-                ConnectionType = "Bluetooth"
-                IsConnected    = $false
-                ConnectedAt    = $lastSeen
-                DisconnectedAt = $null
-                Source         = "Bluetooth Registry"
-            }
+            $results += [PSCustomObject]@{ Name = $name; Manufacturer = ""; DeviceId = $key; Brand = $brand; ConnectionType = "Bluetooth"; IsConnected = $false; ConnectedAt = $lastSeen; DisconnectedAt = $null; Source = "Bluetooth Registry" }
         }
         $btKey.Close()
     }
-
     $bleKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Enum\BTHLE")
     if ($bleKey) {
         foreach ($cls in $bleKey.GetSubKeyNames()) {
             $clsSubKey = $bleKey.OpenSubKey($cls)
             if (-not $clsSubKey) { continue }
-
             foreach ($inst in $clsSubKey.GetSubKeyNames()) {
                 $instSubKey = $clsSubKey.OpenSubKey($inst)
                 if (-not $instSubKey) { continue }
-
                 $friendly = if ($instSubKey.GetValue("FriendlyName")) { $instSubKey.GetValue("FriendlyName").ToString() } else { "" }
-                $brand    = Detect-Brand -text $friendly
-                $instSubKey.Close()
-
+                $brand = Detect-Brand -text $friendly; $instSubKey.Close()
                 if ($brand -eq "Unknown") { continue }
-
-                $results += [PSCustomObject]@{
-                    Name           = $friendly
-                    Manufacturer   = ""
-                    DeviceId       = "BTHLE\$cls\$inst"
-                    Brand          = $brand
-                    ConnectionType = "Bluetooth LE"
-                    IsConnected    = $false
-                    ConnectedAt    = $null
-                    DisconnectedAt = $null
-                    Source         = "BLE Registry"
-                }
+                $results += [PSCustomObject]@{ Name = $friendly; Manufacturer = ""; DeviceId = "BTHLE\$cls\$inst"; Brand = $brand; ConnectionType = "Bluetooth LE"; IsConnected = $false; ConnectedAt = $null; DisconnectedAt = $null; Source = "BLE Registry" }
             }
             $clsSubKey.Close()
         }
         $bleKey.Close()
     }
-
     $btEnumKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Enum\BTH")
     if ($btEnumKey) {
         foreach ($cls in $btEnumKey.GetSubKeyNames()) {
             $clsSubKey = $btEnumKey.OpenSubKey($cls)
             if (-not $clsSubKey) { continue }
-
             foreach ($inst in $clsSubKey.GetSubKeyNames()) {
                 $instSubKey = $clsSubKey.OpenSubKey($inst)
                 if (-not $instSubKey) { continue }
-
                 $friendly = if ($instSubKey.GetValue("FriendlyName")) { $instSubKey.GetValue("FriendlyName").ToString() } else { "" }
-                $desc     = if ($instSubKey.GetValue("DeviceDesc"))   { $instSubKey.GetValue("DeviceDesc").ToString()   } else { "" }
-                $brand    = Detect-Brand -text "$friendly $desc $cls"
-                $instSubKey.Close()
-
+                $desc = if ($instSubKey.GetValue("DeviceDesc")) { $instSubKey.GetValue("DeviceDesc").ToString() } else { "" }
+                $brand = Detect-Brand -text "$friendly $desc $cls"; $instSubKey.Close()
                 if ($brand -eq "Unknown") { continue }
-
                 $finalName = if (-not [string]::IsNullOrEmpty($friendly)) { $friendly } else { $desc }
-
-                $results += [PSCustomObject]@{
-                    Name           = $finalName
-                    Manufacturer   = ""
-                    DeviceId       = "BTH\$cls\$inst"
-                    Brand          = $brand
-                    ConnectionType = "Bluetooth"
-                    IsConnected    = $false
-                    ConnectedAt    = $null
-                    DisconnectedAt = $null
-                    Source         = "BTH Registry"
-                }
+                $results += [PSCustomObject]@{ Name = $finalName; Manufacturer = ""; DeviceId = "BTH\$cls\$inst"; Brand = $brand; ConnectionType = "Bluetooth"; IsConnected = $false; ConnectedAt = $null; DisconnectedAt = $null; Source = "BTH Registry" }
             }
             $clsSubKey.Close()
         }
         $btEnumKey.Close()
     }
-
     return $results
 }
 
-# --- 2. SOFTWARE REGISTRY SCANNER ---
  $KnownSoftware = @(
     @{ Keyword = "logi options+";             Brand = "Logitech";     Name = "Logitech Options+" }
     @{ Keyword = "logi options";              Brand = "Logitech";     Name = "Logitech Options" }
     @{ Keyword = "lghub";                     Brand = "Logitech";     Name = "Logitech G HUB" }
     @{ Keyword = "logitech g hub";            Brand = "Logitech";     Name = "Logitech G HUB" }
     @{ Keyword = "logitech gaming software";  Brand = "Logitech";     Name = "Logitech Gaming Software" }
-    @{ Keyword = "logitech unifying";         Brand = "Logitech";     Name = "Logitech Unifying Software" }
-    @{ Keyword = "logitech bolt";             Brand = "Logitech";     Name = "Logitech Bolt Receiver" }
     @{ Keyword = "razer synapse";             Brand = "Razer";        Name = "Razer Synapse" }
     @{ Keyword = "razer cortex";              Brand = "Razer";        Name = "Razer Cortex" }
-    @{ Keyword = "razer central";             Brand = "Razer";        Name = "Razer Central" }
     @{ Keyword = "steelseries gg";            Brand = "SteelSeries";  Name = "SteelSeries GG" }
     @{ Keyword = "steelseries engine";        Brand = "SteelSeries";  Name = "SteelSeries Engine" }
-    @{ Keyword = "steelseries";               Brand = "SteelSeries";  Name = "SteelSeries Software" }
     @{ Keyword = "icue";                      Brand = "Corsair";      Name = "Corsair iCUE" }
     @{ Keyword = "corsair utility engine";    Brand = "Corsair";      Name = "Corsair iCUE" }
-    @{ Keyword = "corsair";                   Brand = "Corsair";      Name = "Corsair Software" }
     @{ Keyword = "roccat swarm";              Brand = "ROCCAT";       Name = "ROCCAT Swarm" }
-    @{ Keyword = "roccat connect";            Brand = "ROCCAT";       Name = "ROCCAT Connect" }
-    @{ Keyword = "roccat";                    Brand = "ROCCAT";       Name = "ROCCAT Software" }
     @{ Keyword = "glorious core";             Brand = "Glorious";     Name = "Glorious CORE" }
-    @{ Keyword = "glorious";                  Brand = "Glorious";     Name = "Glorious Software" }
     @{ Keyword = "attack shark";              Brand = "Attack Shark"; Name = "Attack Shark Software" }
-    @{ Keyword = "attackshark";               Brand = "Attack Shark"; Name = "Attack Shark Software" }
     @{ Keyword = "armoury crate";             Brand = "ASUS";         Name = "ASUS Armoury Crate" }
-    @{ Keyword = "asus armoury";              Brand = "ASUS";         Name = "ASUS Armoury Crate" }
     @{ Keyword = "msi dragon center";         Brand = "MSI";          Name = "MSI Dragon Center" }
     @{ Keyword = "msi center";                Brand = "MSI";          Name = "MSI Center" }
     @{ Keyword = "hyperx ngenuity";           Brand = "HyperX";       Name = "HyperX NGENUITY" }
-    @{ Keyword = "hp omen gaming hub";        Brand = "HyperX";       Name = "HP OMEN Gaming Hub" }
-    @{ Keyword = "pulsar";                    Brand = "Pulsar";       Name = "Pulsar Software" }
+    @{ Keyword = "bloody";                    Brand = "Bloody";       Name = "Bloody Software" }
+    @{ Keyword = "a4tech";                    Brand = "Bloody";       Name = "A4Tech Software" }
+    @{ Keyword = "redragon";                  Brand = "Redragon";     Name = "Redragon Software" }
+    @{ Keyword = "coolermaster";              Brand = "CoolerMaster"; Name = "CoolerMaster MasterPlus" }
+    @{ Keyword = "cooler master";             Brand = "CoolerMaster"; Name = "CoolerMaster MasterPlus" }
+    @{ Keyword = "alienware command center";  Brand = "Alienware";    Name = "Alienware Command Center" }
+    @{ Keyword = "kensington works";          Brand = "Kensington";   Name = "Kensington Works" }
+    @{ Keyword = "cougar uix";                Brand = "Cougar";       Name = "Cougar UIX" }
+    @{ Keyword = "fantech";                   Brand = "Fantech";      Name = "Fantech Software" }
+    @{ Keyword = "marvo";                     Brand = "Marvo";        Name = "Marvo Software" }
+    @{ Keyword = "ajazz";                     Brand = "Ajazz";        Name = "Ajazz Software" }
+    @{ Keyword = "marsgaming";                Brand = "Marsgaming";   Name = "Marsgaming MMGX" }
+    @{ Keyword = "motospeed";                 Brand = "Motospeed";    Name = "Motospeed Gaming Mouse" }
     @{ Keyword = "finalmouse";                Brand = "Finalmouse";   Name = "Finalmouse Software" }
     @{ Keyword = "zowie";                     Brand = "ZOWIE";        Name = "ZOWIE Mouse Config" }
     @{ Keyword = "endgame gear";              Brand = "Endgame Gear"; Name = "Endgame Gear Software" }
-    @{ Keyword = "bloody";                    Brand = "Bloody";       Name = "Bloody Software" }
-    @{ Keyword = "a4tech";                    Brand = "Bloody";       Name = "A4Tech Software" }
-    @{ Keyword = "cougar uix";                Brand = "Cougar";       Name = "Cougar UIX" }
-    @{ Keyword = "cougar";                    Brand = "Cougar";       Name = "Cougar Software" }
-    @{ Keyword = "alienware command center";  Brand = "Alienware";    Name = "Alienware Command Center" }
-    @{ Keyword = "dell peripheral manager";   Brand = "Alienware";    Name = "Dell Peripheral Manager" }
-    @{ Keyword = "turtle beach";              Brand = "Turtle Beach"; Name = "Turtle Beach Software" }
-    @{ Keyword = "kensington works";          Brand = "Kensington";   Name = "Kensington Works" }
-    @{ Keyword = "kensingtontrackerworks";    Brand = "Kensington";   Name = "Kensington Works" }
-    @{ Keyword = "redragon";                  Brand = "Redragon";     Name = "Redragon Software" }
-    @{ Keyword = "xtrfy";                     Brand = "Xtrfy";        Name = "Xtrfy Software" }
-    @{ Keyword = "fnatic";                    Brand = "Fnatic";       Name = "Fnatic Bolt" }
-    @{ Keyword = "vaxee";                     Brand = "Vaxee";        Name = "Vaxee Software" }
-    @{ Keyword = "ninjutso";                  Brand = "Ninjutso";     Name = "Ninjutso Software" }
-    @{ Keyword = "fantech";                   Brand = "Fantech";      Name = "Fantech Software" }
-    @{ Keyword = "marsgaming";                Brand = "Marsgaming";   Name = "Marsgaming MMGX" }
-    @{ Keyword = "mars gaming";               Brand = "Marsgaming";   Name = "Marsgaming MMGX" }
-    @{ Keyword = "motospeed";                 Brand = "Motospeed";    Name = "Motospeed Gaming Mouse" }
-    @{ Keyword = "marvo";                     Brand = "Marvo";        Name = "Marvo Software" }
-    @{ Keyword = "coolermaster";              Brand = "CoolerMaster"; Name = "CoolerMaster MasterPlus" }
-    @{ Keyword = "cooler master";             Brand = "CoolerMaster"; Name = "CoolerMaster MasterPlus" }
-    @{ Keyword = "ajazz";                     Brand = "Ajazz";        Name = "Ajazz Software" }
-    @{ Keyword = "blackweb";                  Brand = "Blackweb";     Name = "Blackweb Gaming" }
-    @{ Keyword = "spc gear";                  Brand = "SPC Gear";     Name = "SPC Gear LIX" }
-    @{ Keyword = "ayax";                      Brand = "Ayax";         Name = "AYAX Gaming Mouse" }
-    @{ Keyword = "noganet";                   Brand = "Noganet";      Name = "Noganet Ayax" }
+    @{ Keyword = "pulsar";                    Brand = "Pulsar";       Name = "Pulsar Software" }
 )
 
 function Scan-InstalledSoftware {
     $results = @()
-    $seen    = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-
+    $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $hives = @(
         @{ Root = "LocalMachine"; Path = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" }
         @{ Root = "LocalMachine"; Path = "SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" }
         @{ Root = "CurrentUser";  Path = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" }
     )
-
     foreach ($hive in $hives) {
-        $regRoot    = if ($hive.Root -eq "LocalMachine") { [Microsoft.Win32.Registry]::LocalMachine } else { [Microsoft.Win32.Registry]::CurrentUser }
+        $regRoot = if ($hive.Root -eq "LocalMachine") { [Microsoft.Win32.Registry]::LocalMachine } else { [Microsoft.Win32.Registry]::CurrentUser }
         $baseSubKey = $regRoot.OpenSubKey($hive.Path)
         if (-not $baseSubKey) { continue }
-
         foreach ($appName in $baseSubKey.GetSubKeyNames()) {
             $appSubKey = $baseSubKey.OpenSubKey($appName)
             if (-not $appSubKey) { continue }
-
             $displayRaw = $appSubKey.GetValue("DisplayName")
             if (-not $displayRaw) { $appSubKey.Close(); continue }
             $display = $displayRaw.ToString()
-            $lower   = $display.ToLowerInvariant()
-
+            $lower = $display.ToLowerInvariant()
             foreach ($known in $KnownSoftware) {
                 if (-not $lower.Contains($known.Keyword)) { continue }
-
                 $dedupeKey = "$($known.Brand)|$($known.Name)"
                 if (-not $seen.Add($dedupeKey)) { continue }
-
-                $version     = if ($appSubKey.GetValue("DisplayVersion"))  { $appSubKey.GetValue("DisplayVersion").ToString()                  } else { "" }
-                $location    = if ($appSubKey.GetValue("InstallLocation")) { $appSubKey.GetValue("InstallLocation").ToString().TrimEnd('\')    } else { "" }
-                $dateStr     = if ($appSubKey.GetValue("InstallDate"))     { $appSubKey.GetValue("InstallDate").ToString()                     } else { "" }
-
-                $installDate = $null
-                if ($dateStr.Length -eq 8) {
-                    try {
-                        $installDate = [DateTime]::new([int]$dateStr.Substring(0,4), [int]$dateStr.Substring(4,2), [int]$dateStr.Substring(6,2))
-                    } catch {}
-                }
-
-                $results += [PSCustomObject]@{
-                    Brand           = $known.Brand
-                    SoftwareName    = $known.Name
-                    Version         = $version
-                    InstallLocation = $location
-                    InstallDate     = $installDate
-                    RegistryKey     = "$($hive.Path)\$appName"
-                }
+                $version = if ($appSubKey.GetValue("DisplayVersion")) { $appSubKey.GetValue("DisplayVersion").ToString() } else { "" }
+                $results += [PSCustomObject]@{ Brand = $known.Brand; SoftwareName = $known.Name; Version = $version }
                 break
             }
             $appSubKey.Close()
@@ -405,329 +280,116 @@ function Scan-InstalledSoftware {
     return $results
 }
 
-# --- 3. CONFIG FILE ENTRIES ---
  $ConfigEntries = @(
-    # -- LOGITECH --
     @{ Brand = "Logitech";    Name = "G HUB - settings.db";              Path = "$env:LOCALAPPDATA\LGHUB\settings.db";                                          IsMacro = $true  }
     @{ Brand = "Logitech";    Name = "G HUB - Macros folder";            Path = "$env:LOCALAPPDATA\LGHUB";                                                      IsMacro = $true  }
     @{ Brand = "Logitech";    Name = "Options+ - options_plus.db";       Path = "$env:LOCALAPPDATA\Logi\LogiOptionsPlus\data\options_plus.db";                   IsMacro = $false }
     @{ Brand = "Logitech";    Name = "Gaming Software - settings";       Path = "$env:LOCALAPPDATA\Logitech\Logitech Gaming Software\settings.json";             IsMacro = $true  }
-
-    # -- LOGITECH (extended) --
     @{ Brand = "Logitech";    Name = "G HUB - ProgramData applications"; Path = "C:\ProgramData\LGHUBData\applications";                                       IsMacro = $true  }
     @{ Brand = "Logitech";    Name = "G HUB - Roaming Backup";          Path = "$env:APPDATA\LGHUB_BKP";                                                     IsMacro = $true  }
-
-    # -- RAZER - ROAMING APPDATA --
     @{ Brand = "Razer";       Name = "Synapse 3 - Settings";            Path = "$env:APPDATA\Razer\Synapse3\Settings";                                         IsMacro = $true  }
     @{ Brand = "Razer";       Name = "Synapse 3 - MacroData";           Path = "$env:APPDATA\Razer\Synapse3\MacroData";                                        IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - StaticDevConf";       Path = "$env:APPDATA\Razer\Synapse3\StaticDeviceConf.json";                            IsMacro = $false }
     @{ Brand = "Razer";       Name = "Synapse 3 - Accounts";            Path = "$env:APPDATA\Razer\Synapse3\Accounts";                                         IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Razer Central - Accounts";        Path = "$env:APPDATA\Razer\Razer Central\Accounts";                                    IsMacro = $false }
-
-    # -- RAZER - LOCAL APPDATA --
-    @{ Brand = "Razer";       Name = "Razer - LocalAppData root";       Path = "$env:LOCALAPPDATA\Razer";                                                      IsMacro = $false }
-    @{ Brand = "Razer";       Name = "RazerAppEngine - root";           Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine";                                       IsMacro = $false }
-    @{ Brand = "Razer";       Name = "RazerAppEngine - Cache";          Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\Cache";                                  IsMacro = $false }
     @{ Brand = "Razer";       Name = "RazerAppEngine - User Data";      Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data";                             IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "RazerAppEngine - Local State";    Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data\Local State";                IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Cortex - LocalAppData";     Path = "$env:LOCALAPPDATA\Razer\Razer Cortex";                                         IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Cortex - DB";               Path = "$env:LOCALAPPDATA\Razer\Razer Cortex\data.db";                                 IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Cortex - config.json";      Path = "$env:LOCALAPPDATA\Razer\Razer Cortex\config.json";                             IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Central - LocalAppData";    Path = "$env:LOCALAPPDATA\Razer\Razer Central";                                       IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Central - settings.db";     Path = "$env:LOCALAPPDATA\Razer\Razer Central\settings.db";                            IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Synapse 3 - Accounts (Local)";    Path = "$env:LOCALAPPDATA\Razer\Synapse3\Accounts";                                    IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - Cloud Cache";         Path = "$env:LOCALAPPDATA\Razer\Synapse3\Data";                                        IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - Local DB";            Path = "$env:LOCALAPPDATA\Razer\Synapse3\Devices.db";                                  IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - UpdateService";       Path = "$env:LOCALAPPDATA\Razer\UpdateService";                                        IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Synapse 3 - Installer";           Path = "$env:LOCALAPPDATA\Razer\Installer";                                            IsMacro = $false }
     @{ Brand = "Razer";       Name = "RazerAppEngine - Logs";           Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data\Logs";                         IsMacro = $true  }
     @{ Brand = "Razer";       Name = "RazerAppEngine - Products";       Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data\Products";                     IsMacro = $true  }
-
-    # -- RAZER - PROGRAMDATA --
-    @{ Brand = "Razer";       Name = "Synapse 3 - Service Log";         Path = "$env:PROGRAMDATA\Razer\Synapse3\Log\SynapseService.log";                       IsMacro = $true  }
     @{ Brand = "Razer";       Name = "Synapse 3 - ProgramData";         Path = "$env:PROGRAMDATA\Razer\Synapse3";                                              IsMacro = $true  }
     @{ Brand = "Razer";       Name = "Razer Central - ProgramData";     Path = "$env:PROGRAMDATA\Razer\Razer Central";                                         IsMacro = $true  }
-
-    # -- STEELSERIES --
     @{ Brand = "SteelSeries"; Name = "GG - gg.db";                      Path = "$env:APPDATA\SteelSeries\GG\db\gg.db";                                        IsMacro = $true  }
-
-    # -- CORSAIR --
     @{ Brand = "Corsair";     Name = "iCUE 5 - config.db";              Path = "$env:APPDATA\Corsair\CUE5\config.db";                                         IsMacro = $true  }
     @{ Brand = "Corsair";     Name = "iCUE 4 - config.db";              Path = "$env:APPDATA\Corsair\CUE4\config.db";                                         IsMacro = $true  }
-    @{ Brand = "Corsair";     Name = "iCUE - Config.cuecfg";            Path = "$env:APPDATA\corsair\CUE\Config.cuecfg";                                       IsMacro = $true  }
-
-    # -- ROCCAT --
-    @{ Brand = "ROCCAT";      Name = "Swarm - settings.xml";             Path = "$env:APPDATA\ROCCAT\ROCCAT Swarm\settings.xml";                               IsMacro = $false }
     @{ Brand = "ROCCAT";      Name = "Swarm - macro folder";             Path = "$env:APPDATA\ROCCAT\SWARM\macro";                                             IsMacro = $true  }
-    @{ Brand = "ROCCAT";      Name = "Swarm - preset macros";            Path = "$env:APPDATA\ROCCAT\SWARM\preset_macro";                                      IsMacro = $true  }
-    @{ Brand = "ROCCAT";      Name = "Connect - settings.db";            Path = "$env:APPDATA\ROCCAT\ROCCAT Connect\settings.db";                              IsMacro = $false }
-
-    # -- GLORIOUS --
-    @{ Brand = "Glorious";    Name = "CORE - config.json";               Path = "$env:APPDATA\glorious-core-app\config.json";                                  IsMacro = $false }
     @{ Brand = "Glorious";    Name = "CORE - settings.db";               Path = "$env:LOCALAPPDATA\GloriousCore\settings.db";                                  IsMacro = $true  }
-    @{ Brand = "Glorious";    Name = "BYCOMBO-2 - Macros";               Path = "$env:APPDATA\BYCOMBO-2\Mac";                                                  IsMacro = $true  }
-
-    # -- ATTACK SHARK --
-    @{ Brand = "Attack Shark"; Name = "Software - config.json";          Path = "$env:APPDATA\AttackShark\config.json";                                        IsMacro = $false }
-    @{ Brand = "Attack Shark"; Name = "Software - settings.db";          Path = "$env:LOCALAPPDATA\AttackShark\settings.db";                                   IsMacro = $true  }
-    @{ Brand = "Attack Shark"; Name = "ProgramData config";              Path = "$env:PROGRAMDATA\AttackShark\config.json";                                    IsMacro = $false }
-
-    # -- ASUS --
+    @{ Brand = "Bloody";      Name = "Bloody7 - GunLib Macros";          Path = "C:\Program Files (x86)\Bloody7\Bloody7\Data\Mouse\English\ScriptsMacros\GunLib"; IsMacro = $true  }
     @{ Brand = "ASUS";        Name = "Armoury Crate - settings.db";      Path = "$env:LOCALAPPDATA\ASUS\ArmouryCrate\settings.db";                            IsMacro = $true  }
-    @{ Brand = "ASUS";        Name = "ROG Armoury - Macros";             Path = "$env:USERPROFILE\Documents\ASUS\ROG\ROG Armoury\common";                     IsMacro = $true  }
-
-    # -- MSI --
-    @{ Brand = "MSI";         Name = "Dragon Center - settings";         Path = "$env:APPDATA\MSI\Dragon Center\settings.json";                               IsMacro = $false }
-    @{ Brand = "MSI";         Name = "MSI Center - settings.db";         Path = "$env:APPDATA\MSI\MSI Center\settings.db";                                    IsMacro = $true  }
-
-    # -- HYPERX --
-    @{ Brand = "HyperX";      Name = "NGENUITY - settings.db";           Path = "$env:APPDATA\HyperX\NGENUITY\settings.db";                                   IsMacro = $true  }
-    @{ Brand = "HyperX";      Name = "NGENUITY - Store DB";              Path = "$env:LOCALAPPDATA\Packages\33C30B79.HyperXNGenuity_0a78dr3hq0pvt\LocalState\Settings\setting.db"; IsMacro = $true }
-
-    # -- PULSAR --
-    @{ Brand = "Pulsar";      Name = "Fusion - config.json";             Path = "$env:APPDATA\Pulsar\config.json";                                            IsMacro = $false }
-
-    # -- FINALMOUSE --
-    @{ Brand = "Finalmouse";  Name = "Software - settings.db";           Path = "$env:APPDATA\Finalmouse\settings.db";                                        IsMacro = $false }
-
-    # -- ZOWIE --
-    @{ Brand = "ZOWIE";       Name = "Mouse Config - config.json";       Path = "$env:APPDATA\ZOWIE\config.json";                                             IsMacro = $false }
-
-    # -- ENDGAME GEAR --
-    @{ Brand = "Endgame Gear"; Name = "Software - settings.db";          Path = "$env:APPDATA\Endgame Gear\settings.db";                                      IsMacro = $false }
-
-    # -- BLOODY --
-    @{ Brand = "Bloody";      Name = "Bloody7 - GunLib Macros";          Path = "C:\Program Files (x86)\Bloody7\Bloody7\Data\Mouse\English\ScriptsMacros\GunLib"; IsMacro = $true }
-    @{ Brand = "Bloody";      Name = "Software - config.json";           Path = "$env:APPDATA\Bloody\config.json";                                            IsMacro = $false }
-    @{ Brand = "Bloody";      Name = "Software - settings.db";           Path = "$env:LOCALAPPDATA\Bloody\settings.db";                                       IsMacro = $true  }
-
-    # -- ALIENWARE --
-    @{ Brand = "Alienware";   Name = "CC - fxmetadata";                  Path = "C:\ProgramData\Alienware\AlienWare Command Center\fxmetadata";               IsMacro = $false }
-    @{ Brand = "Alienware";   Name = "CC - config.json";                 Path = "$env:PROGRAMDATA\Alienware\AWCCService\config.json";                         IsMacro = $false }
-
-    # -- KENSINGTON --
-    @{ Brand = "Kensington";  Name = "Works - settings.db";              Path = "$env:APPDATA\Kensington\KensingtonWorks\settings.db";                        IsMacro = $false }
-
-    # -- COUGAR --
-    @{ Brand = "Cougar";      Name = "UIX - config.json";                Path = "$env:APPDATA\Cougar\UIX\config.json";                                        IsMacro = $false }
-
-    # -- REDRAGON --
     @{ Brand = "Redragon";    Name = "GamingMouse - Macro folder";       Path = "$env:APPDATA\REDRAGON\GamingMouse\Macro";                                    IsMacro = $true  }
-    @{ Brand = "Redragon";    Name = "GamingMouse - config.ini";         Path = "$env:APPDATA\REDRAGON\GamingMouse\config.ini";                               IsMacro = $false }
-    @{ Brand = "Redragon";    Name = "Software - config.json";           Path = "$env:APPDATA\Redragon\config.json";                                          IsMacro = $false }
-
-    # -- XENON200 --
-    @{ Brand = "Xenon200";    Name = "Configs folder";                   Path = "C:\Program Files (x86)\Xenon200\configs";                                    IsMacro = $false }
-
-    # -- T16 / BYCOMBO --
-    @{ Brand = "T16";         Name = "BY-COMBO - curid.dct";             Path = "$env:LOCALAPPDATA\BY-COMBO\curid.dct";                                       IsMacro = $false }
-    @{ Brand = "T16";         Name = "BY-COMBO - pro.dct";               Path = "$env:LOCALAPPDATA\BY-COMBO\pro.dct";                                         IsMacro = $false }
-
-    # -- MARVO --
-    @{ Brand = "Marvo";       Name = "BY-8801 - curid.dct";              Path = "$env:LOCALAPPDATA\BY-8801-GM917-v108\curid.dct";                             IsMacro = $false }
-    @{ Brand = "Marvo";       Name = "BY-8801 - pro.dct";                Path = "$env:LOCALAPPDATA\BY-8801-GM917-v108\pro.dct";                               IsMacro = $false }
-
-    # -- AJAZZ --
-    @{ Brand = "Ajazz";       Name = "BYCOMBO-2 - Macros (Local)";       Path = "$env:LOCALAPPDATA\BYCOMBO-2\Mac";                                            IsMacro = $true  }
-    @{ Brand = "Ajazz";       Name = "BYCOMBO-2 - Macros (Roam)";        Path = "$env:APPDATA\BYCOMBO-2\Mac";                                                 IsMacro = $true  }
-
-    # -- KROM KOLT --
-    @{ Brand = "Krom Kolt";   Name = "KROM KOLT - sequence.dat";         Path = "$env:LOCALAPPDATA\VirtualStore\Program Files (x86)\KROM KOLT\Config\sequence.dat"; IsMacro = $true }
-
-    # -- BLACKWEB --
-    @{ Brand = "Blackweb";    Name = "Gaming AP - config";               Path = "C:\Blackweb Gaming AP\config";                                               IsMacro = $false }
-
-    # -- SPC GEAR --
-    @{ Brand = "SPC Gear";    Name = "LIX - install folder";             Path = "C:\Program Files (x86)\SPC Gear";                                            IsMacro = $false }
-
-    # -- AYAX --
-    @{ Brand = "Ayax";        Name = "GamingMouse - record.ini";         Path = "C:\Program Files\AYAX GamingMouse\record.ini";                               IsMacro = $true  }
-
-    # -- MARSGAMING --
-    @{ Brand = "Marsgaming";  Name = "MMGX - macro module";              Path = "C:\Program Files (x86)\MARSGAMING\MMGX\modules\macro";                       IsMacro = $true  }
-
-    # -- MOTOSPEED --
-    @{ Brand = "Motospeed";   Name = "Gaming Mouse - modules";            Path = "C:\Program Files (x86)\MotoSpeed Gaming Mouse\V60\modules";                  IsMacro = $false }
-
-    # -- COOLERMASTER --
-    @{ Brand = "CoolerMaster"; Name = "MasterPlus - folder";             Path = "C:\Program Files (x86)\CoolerMaster\MasterPlus";                             IsMacro = $false }
-
-    # -- FANTECH --
-    @{ Brand = "Fantech";     Name = "VX7 - config.ini";                 Path = "C:\Program Files (x86)\FANTECH VX7 Gaming Mouse\config.ini";                 IsMacro = $false }
-
-    # -- AJ390R --
-    @{ Brand = "AJ390R";      Name = "AJ390R - data folder";             Path = "C:\Program Files (x86)\AJ390R Gaming Mouse\data";                            IsMacro = $false }
 )
 
 function Scan-ConfigFiles {
     $results = @()
     foreach ($entry in $ConfigEntries) {
-        $exists  = Test-Path $entry.Path
-        $lastMod = $null
-        $size    = $null
-        $isDir   = $false
-
+        $exists = Test-Path $entry.Path
+        $lastMod = $null; $size = $null; $isDir = $false
         if ($exists) {
             $item = Get-Item $entry.Path -ErrorAction SilentlyContinue
-            if ($item) {
-                $lastMod = $item.LastWriteTime
-                $isDir   = $item.PSIsContainer
-                if (-not $isDir) {
-                    $size = $item.Length
-                }
-            }
+            if ($item) { $lastMod = $item.LastWriteTime; $isDir = $item.PSIsContainer; if (-not $isDir) { $size = $item.Length } }
         }
-
-        $results += [PSCustomObject]@{
-            Brand        = $entry.Brand
-            SoftwareName = $entry.Name
-            FilePath     = $entry.Path
-            Exists       = $exists
-            LastModified = $lastMod
-            IsMacro      = $entry.IsMacro
-            IsDirectory  = $isDir
-            SizeBytes    = $size
-        }
+        $results += [PSCustomObject]@{ Brand = $entry.Brand; SoftwareName = $entry.Name; FilePath = $entry.Path; Exists = $exists; LastModified = $lastMod; IsMacro = $entry.IsMacro; IsDirectory = $isDir; SizeBytes = $size }
     }
     return $results
 }
 
-# --- 4. RENDERING ENGINE ---
-function Show-Separator {
-    param([char]$ch = [char]0x2500, [int]$width = 72)
-    Write-Host "  $(New-Object string ($ch, $width))" -ForegroundColor DarkGray
-}
+function Show-Separator { param([char]$ch = [char]0x2500, [int]$width = 72) Write-Host "  $(New-Object string ($ch, $width))" -ForegroundColor DarkGray }
+function Show-Section { param([string]$title) Write-Host ""; Show-Separator; Write-Host "  " -NoNewline; Write-Host ([char]0x258C + " ") -ForegroundColor DarkMagenta -NoNewline; Write-Host $title.ToUpperInvariant() -ForegroundColor White; Show-Separator }
+function Show-Field { param([string]$key, [string]$value, $col = "Gray") Write-Host "    $($key.PadRight(22))" -ForegroundColor DarkGray -NoNewline; Write-Host $value -ForegroundColor $col }
+function Show-Good  { param([string]$text) Write-Host "  + $text" -ForegroundColor Green }
+function Show-Alert { param([string]$text) Write-Host "  ! $text" -ForegroundColor Yellow }
+function Show-Warn  { param([string]$text) Write-Host "  [!] $text" -ForegroundColor Red }
 
-function Show-Section {
-    param([string]$title)
-    Write-Host ""
-    Show-Separator
-    Write-Host "  " -NoNewline
-    Write-Host ([char]0x258C + " ") -ForegroundColor DarkMagenta -NoNewline
-    Write-Host $title.ToUpperInvariant() -ForegroundColor White
-    Show-Separator
-}
+function Format-Bytes { param([long]$bytes) if ($bytes -ge 1MB) { return "{0:N1} MB" -f ($bytes / 1MB) } if ($bytes -ge 1KB) { return "{0:N1} KB" -f ($bytes / 1KB) } return "$bytes B" }
 
-function Show-Field {
-    param([string]$key, [string]$value, $col = "Gray")
-    Write-Host "    $($key.PadRight(22))" -ForegroundColor DarkGray -NoNewline
-    Write-Host $value -ForegroundColor $col
-}
+ $IgnorePaths = @("\Cache\", "\GPUCache\", "\Code Cache\", "\Session Storage\", "\IndexedDB\", "\Dictionaries\", "\Crashpad\", "\GrpcChann", "\CrashReports\", "\Service Worker\")
+function Test-IsNoise { param([string]$Path) $upper = $Path.ToUpper(); foreach ($n in $IgnorePaths) { if ($upper.Contains($n.ToUpper())) { return $true } } return $false }
 
-function Show-Info  { param([string]$text) Write-Host "  $text"      -ForegroundColor DarkGray }
-function Show-Good  { param([string]$text) Write-Host "  + $text"    -ForegroundColor Green    }
-function Show-Alert { param([string]$text) Write-Host "  ! $text"    -ForegroundColor Yellow   }
-function Show-Warn  { param([string]$text) Write-Host "  [!] $text"  -ForegroundColor Red      }
+function Get-FileContentFast { param([string]$Path) try { return [System.IO.File]::ReadAllText($Path) } catch { return $null } }
 
-function Format-Bytes {
-    param([long]$bytes)
-    if ($bytes -ge 1MB) { return "{0:N1} MB" -f ($bytes / 1MB) }
-    if ($bytes -ge 1KB) { return "{0:N1} KB" -f ($bytes / 1KB) }
-    return "$bytes B"
-}
-
-# --- 5. NOISE FILTER ---
- $IgnorePaths = @(
-    "\Cache\", "\GPUCache\", "\Code Cache\",
-    "\Session Storage\", "\IndexedDB\", "\Dictionaries\",
-    "\Crashpad\", "\GrpcChann", "\CrashReports\",
-    "\Service Worker\"
-)
-function Test-IsNoise {
-    param([string]$Path)
-    $upper = $Path.ToUpper()
-    foreach ($n in $IgnorePaths) { if ($upper.Contains($n.ToUpper())) { return $true } }
+# STRIPPED DOWN DIRECT MACRO FINDER - Looks directly for macro strings
+function Find-ExplicitMacrosInFile {
+    param([string]$FilePath)
+    $txt = Get-FileContentFast -Path $FilePath
+    if (-not $txt) { return $false }
+    
+    $low = $txt.ToLower()
+    # Direct definitions of macros
+    if ($low.Contains('"macro"') -or $low.Contains('"macros"') -or $low.Contains('"macromanager"') -or $low.Contains('"macrodata"')) { return $true }
+    # G HUB specific
+    if ($low.Contains('"assignments"') -and ($low.Contains('"delay"') -or $low.Contains('"script"'))) { return $true }
+    # Razer / Generic specific
+    if ($low.Contains('"sequence"') -and $low.Contains('"delay"')) { return $true }
+    if ($low.Contains('"script"') -and $low.Contains('"delay"')) { return $true }
+    
     return $false
 }
 
-# --- 6. MACRO CONTENT DETECTION ---
- $RxMacroTiming = [regex]::new('"delay"\s*:\s*\d+', 'Compiled')
- $RxRepeat      = [regex]::new('"repeat"', 'Compiled')
- $RxSequence    = [regex]::new('"sequence"', 'Compiled')
-
-function Get-FileContentFast {
-    param([string]$Path)
-    try { return [System.IO.File]::ReadAllText($Path) } catch { return $null }
-}
-
-function Test-MacroStrings {
-    param([string]$Text, [string[]]$Keys)
-    $hits = [System.Collections.Generic.List[string]]::new()
-    foreach ($k in $Keys) {
-        if ($Text.Contains($k)) { $hits.Add("key:'$k'") }
-    }
-    if ($RxMacroTiming.IsMatch($Text)) { $hits.Add("timed delays") }
-    if ($RxRepeat.IsMatch($Text))      { $hits.Add("repeat/loop") }
-    if ($RxSequence.IsMatch($Text))    { $hits.Add("key sequence") }
-    return ,$hits
-}
-
-function Parse-ContentForMacros {
-    param([string]$FilePath, [string[]]$MacroKeys)
-    $text = Get-FileContentFast -Path $FilePath
-    if (-not $text) { return @() }
-    return ,(Test-MacroStrings -Text $text -Keys $MacroKeys)
-}
-
-# Deep scans a directory specifically to find the EXACT file containing macros
-function Find-MacroFilesInDirectory {
+# Scans directory and returns ONLY files that actually contain macro definitions
+function Get-ExplicitMacroFiles {
     param([string]$DirectoryPath, [datetime]$Cutoff)
-    $macroFiles = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $found = [System.Collections.Generic.List[PSCustomObject]]::new()
     $safeExts = @(".json", ".xml", ".txt", ".cfg", ".ini", ".lua", ".log", ".dat", ".db")
     
     try {
-        $dirFiles = Get-ChildItem -Path $DirectoryPath -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $Cutoff -and $safeExts -contains $_.Extension.ToLower() }
+        $dirFiles = Get-ChildItem -Path $DirectoryPath -Recurse -File -ErrorAction SilentlyContinue | 
+                    Where-Object { $_.LastWriteTime -ge $Cutoff -and $safeExts -contains $_.Extension.ToLower() -and -not (Test-IsNoise -Path $_.FullName) }
         
         foreach ($file in $dirFiles) {
-            if (Test-IsNoise -Path $file.FullName) { continue }
-            
-            $txt = Get-FileContentFast -Path $file.FullName
-            if ($txt) {
-                $low = $txt.ToLower()
-                # Require strong combination to avoid false positives in logs
-                $hasKeyword = ($low.Contains("macro") -or $low.Contains("assignment") -or $low.Contains("sequence") -or $low.Contains("command") -or $low.Contains("script"))
-                $hasContext = ($low.Contains("delay") -or $low.Contains("repeat") -or $low.Contains("key") -or $low.Contains("mouse") -or $low.Contains("click"))
-                
-                if (($hasKeyword -and $hasContext) -or $RxMacroTiming.IsMatch($txt) -or $RxSequence.IsMatch($txt)) {
-                    $macroFiles.Add([PSCustomObject]@{
-                        Name = $file.Name
-                        FullPath = $file.FullName
-                        SizeBytes = $file.Length
-                        LastModified = $file.LastWriteTime
-                    })
-                }
+            if (Find-ExplicitMacrosInFile -FilePath $file.FullName) {
+                $found.Add([PSCustomObject]@{
+                    Name = $file.Name
+                    FullPath = $file.FullName
+                    SizeBytes = $file.Length
+                    LastModified = $file.LastWriteTime
+                })
             }
         }
     } catch {}
-    return $macroFiles
+    return $found
 }
 
-# --- 7. SOFTWARE PROFILES ---
  $SoftwareProfiles = @(
     @{ Name="Logitech G HUB";           Paths=@("$env:LOCALAPPDATA\LGHUB","$env:APPDATA\LGHUB","$env:PROGRAMDATA\LGHUB","$env:APPDATA\LGHUB_BKP","C:\ProgramData\LGHUBData\applications"); Ext=@("*.json", "*.db");       Keys=@("macros","assignments","commands"); Proc=@("LGHUB","LGHUB Agent") }
     @{ Name="Logitech Gaming Software (Legacy)"; Paths=@("$env:APPDATA\Logitech\Logitech Gaming Software","$env:LOCALAPPDATA\Logitech"); Ext=@("*.json","*.xml"); Keys=@("macro","assignment","script"); Proc=@("LCore") }
-    @{ Name="Razer Synapse";            Paths=@("$env:APPDATA\Razer\Synapse3","$env:APPDATA\Razer\Synapse","$env:LOCALAPPDATA\Razer\Synapse3","$env:PROGRAMDATA\Razer\Synapse3","$env:LOCALAPPDATA\Razer\RazerAppEngine","$env:PROGRAMDATA\Razer\RazerAppEngine"); Ext=@("*.json","*.xml","*.ldb","*.log", "*.db"); Keys=@("macro","Macro","action","Action","Script"); Proc=@("Razer Synapse","RazerCentralService","RazerStats") }
-    @{ Name="SteelSeries GG";           Paths=@("$env:APPDATA\SteelSeries\SteelSeries GG","$env:LOCALAPPDATA\SteelSeries\SteelSeries GG","$env:LOCALAPPDATA\SteelSeries"); Ext=@("*.json", "*.db"); Keys=@("macro","action","binding"); Proc=@("SteelSeriesGG","SteelSeriesEngine") }
-    @{ Name="SteelSeries Engine 3 (Legacy)"; Paths=@("$env:APPDATA\SteelSeries Engine 3"); Ext=@("*.json"); Keys=@("macro","action","binding"); Proc=@("SteelSeriesEngine3") }
-    @{ Name="Corsair iCUE";             Paths=@("$env:APPDATA\Corsair\CUE5","$env:APPDATA\Corsair\CUE4","$env:APPDATA\Corsair","$env:LOCALAPPDATA\Corsair"); Ext=@("*.cueprofile","*.json", "*.db"); Keys=@("macro","action","command"); Proc=@("iCUE","CorsairService") }
-    @{ Name="ASUS Armoury Crate";       Paths=@("$env:LOCALAPPDATA\ASUS\ArmouryCrate","$env:LOCALAPPDATA\ASUS\AURA","$env:APPDATA\ASUS\ArmouryCrate","$env:PROGRAMDATA\ASUS\ArmouryCrate"); Ext=@("*.json","*.xml"); Keys=@("macro","key","action"); Proc=@("ArmouryCrate","ASUSOptimization") }
-    @{ Name="HyperX NGENUITY";          Paths=@("$env:LOCALAPPDATA\HyperX NGENUITY","$env:APPDATA\HyperX NGENUITY","$env:LOCALAPPDATA\HyperX"); Ext=@("*.json"); Keys=@("macro","action","binding"); Proc=@("NGENUITY") }
-    @{ Name="Wooting";                  Paths=@("$env:LOCALAPPDATA\Wooting","$env:APPDATA\Wooting"); Ext=@("*.json"); Keys=@("macro","analog","action"); Proc=@("WootingUACHelper","Wooting") }
+    @{ Name="Razer Synapse";            Paths=@("$env:APPDATA\Razer\Synapse3","$env:LOCALAPPDATA\Razer\Synapse3","$env:PROGRAMDATA\Razer\Synapse3","$env:LOCALAPPDATA\Razer\RazerAppEngine"); Ext=@("*.json","*.xml","*.ldb","*.log", "*.db"); Keys=@("macro","Macro","action","Action","Script"); Proc=@("Razer Synapse","RazerCentralService","RazerStats") }
+    @{ Name="SteelSeries GG";           Paths=@("$env:APPDATA\SteelSeries\SteelSeries GG","$env:LOCALAPPDATA\SteelSeries"); Ext=@("*.json", "*.db"); Keys=@("macro","action","binding"); Proc=@("SteelSeriesGG","SteelSeriesEngine") }
+    @{ Name="Corsair iCUE";             Paths=@("$env:APPDATA\Corsair\CUE5","$env:APPDATA\Corsair\CUE4","$env:APPDATA\Corsair"); Ext=@("*.cueprofile","*.json", "*.db"); Keys=@("macro","action","command"); Proc=@("iCUE","CorsairService") }
+    @{ Name="ASUS Armoury Crate";       Paths=@("$env:LOCALAPPDATA\ASUS\ArmouryCrate","$env:PROGRAMDATA\ASUS\ArmouryCrate"); Ext=@("*.json","*.xml"); Keys=@("macro","key","action"); Proc=@("ArmouryCrate") }
     @{ Name="Glorious CORE";            Paths=@("$env:LOCALAPPDATA\Glorious\Glorious CORE","$env:APPDATA\Glorious","$env:LOCALAPPDATA\Glorious"); Ext=@("*.json"); Keys=@("macro","key","assignment","sequence"); Proc=@("GloriousCORE") }
-    @{ Name="Bloody / A4Tech";          Paths=@("$env:LOCALAPPDATA\Bloody","$env:PROGRAMDATA\Bloody","$env:LOCALAPPDATA\A4Tech","$env:PROGRAMDATA\A4Tech"); Ext=@("*.dat","*.json","*.xml","*.bin"); Keys=@("macro","Macro","script","Script","shot"); Proc=@("Bloody7","A4Tech") }
-    @{ Name="Cooler Master MasterPlus+";Paths=@("$env:LOCALAPPDATA\Cooler Master","$env:APPDATA\Cooler Master"); Ext=@("*.json","*.xml"); Keys=@("macro","assignment","action"); Proc=@("MasterPlus") }
-    @{ Name="Roccat Swarm / Titan";     Paths=@("$env:APPDATA\Roccat","$env:LOCALAPPDATA\Roccat"); Ext=@("*.xml","*.json"); Keys=@("macro","Macro","sequence","command"); Proc=@("Roccat Swarm","Titan") }
-    @{ Name="Redragon";                 Paths=@("$env:APPDATA\REDRAGON\GamingMouse","$env:APPDATA\Redragon","$env:LOCALAPPDATA\Redragon"); Ext=@("*.ini","*.json"); Keys=@("macro","Macro"); Proc=@("Redragon") }
-    @{ Name="Marvo / BY-COMBO";         Paths=@("$env:LOCALAPPDATA\BY-8801-GM917-v108","$env:LOCALAPPDATA\BY-COMBO","$env:LOCALAPPDATA\BYCOMBO-2"); Ext=@("*.dct","*.json"); Keys=@("macro"); Proc=@() }
-    @{ Name="Ajazz";                    Paths=@("$env:LOCALAPPDATA\BYCOMBO-2","$env:APPDATA\BYCOMBO-2"); Ext=@("*.json"); Keys=@("macro"); Proc=@() }
+    @{ Name="Bloody / A4Tech";          Paths=@("$env:LOCALAPPDATA\Bloody","$env:PROGRAMDATA\Bloody"); Ext=@("*.dat","*.json","*.xml","*.bin"); Keys=@("macro","script","shot"); Proc=@("Bloody7","A4Tech") }
 )
 
-# --- 8. CONTENT SCAN ---
 function Invoke-ContentScan {
     param([int]$RecentMins = 20)
     $cutoff = (Get-Date).AddMinutes(-$RecentMins)
     $results = [System.Collections.Generic.List[PSCustomObject]]::new()
-
     foreach ($sw in $SoftwareProfiles) {
         foreach ($bp in $sw.Paths) {
             if (-not (Test-Path $bp)) { continue }
@@ -738,15 +400,11 @@ function Invoke-ContentScan {
                         if (Test-IsNoise -Path $f) { continue }
                         $item = [System.IO.FileInfo]::new($f)
                         if ($item.LastWriteTime -lt $cutoff) { continue }
-                        $hits = Parse-ContentForMacros -FilePath $f -MacroKeys $sw.Keys
+                        
+                        $hasMacro = Find-ExplicitMacrosInFile -FilePath $f
                         $results.Add([PSCustomObject]@{
-                            Software = $sw.Name
-                            FilePath = $f
-                            LastModified = $item.LastWriteTime
-                            SizeBytes = $item.Length
-                            MacroHits = $hits
-                            HasMacro  = $hits.Count -gt 0
-                            Processes = $sw.Proc
+                            Software = $sw.Name; FilePath = $f; LastModified = $item.LastWriteTime
+                            SizeBytes = $item.Length; HasMacro = $hasMacro; Processes = $sw.Proc
                         })
                     }
                 } catch {}
@@ -759,45 +417,21 @@ function Invoke-ContentScan {
 function Get-ProcessStatus {
     param([string[]]$Names)
     $running = [System.Collections.Generic.List[string]]::new()
-    foreach ($n in $Names) {
-        if (Get-Process -Name $n -ErrorAction SilentlyContinue) { $running.Add($n) }
-    }
+    foreach ($n in $Names) { if (Get-Process -Name $n -ErrorAction SilentlyContinue) { $running.Add($n) } }
     return $running.ToArray()
 }
 
-# --- 9. DYNAMIC WILDCARD PREFETCH SCANNER ---
 function Invoke-PrefetchScan {
     param([datetime]$Cutoff)
     $results = [System.Collections.Generic.List[PSCustomObject]]::new()
     $prefetchDir = "C:\Windows\Prefetch"
-    
-    if (-not (Test-Path $prefetchDir)) { 
-        return $results.ToArray() 
-    }
-
+    if (-not (Test-Path $prefetchDir)) { return $results.ToArray() }
     $execs = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    foreach ($sw in $SoftwareProfiles) {
-        foreach ($p in $sw.Proc) {
-            if (-not [string]::IsNullOrEmpty($p)) {
-                $execs.Add("$p.EXE") | Out-Null
-            }
-        }
-    }
-
+    foreach ($sw in $SoftwareProfiles) { foreach ($p in $sw.Proc) { if (-not [string]::IsNullOrEmpty($p)) { $execs.Add("$p.EXE") | Out-Null } } }
     foreach ($exe in $execs) {
         try {
             $pfFiles = Get-ChildItem -Path $prefetchDir -Filter "$exe-*.pf" -ErrorAction SilentlyContinue
-            foreach ($pf in $pfFiles) {
-                if ($pf.LastWriteTime -ge $Cutoff) {
-                    $results.Add([PSCustomObject]@{
-                        Executable  = $exe
-                        FilePath    = $pf.FullName
-                        FileName    = $pf.Name
-                        SizeBytes   = $pf.Length
-                        LastModified = $pf.LastWriteTime
-                    })
-                }
-            }
+            foreach ($pf in $pfFiles) { if ($pf.LastWriteTime -ge $Cutoff) { $results.Add([PSCustomObject]@{ Executable = $exe; FileName = $pf.Name; SizeBytes = $pf.Length; LastModified = $pf.LastWriteTime }) } }
         } catch {}
     }
     return $results.ToArray()
@@ -805,28 +439,20 @@ function Invoke-PrefetchScan {
 
 function Main {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-    $Host.UI.RawUI.WindowTitle = "MacroDetector v2.4"
+    $Host.UI.RawUI.WindowTitle = "MacroDetector v2.5"
     $cutoff = (Get-Date).AddMinutes(-20)
     $pcOwner = $env:USERNAME
 
     Write-Host @"
-
   ▄▄▄     ▄▄▄
    ███▄ ▄███
    ██ ▀█▀ ██               ▄
    ██     ██   ▄▀▀█▄ ▄███▀ ████▄▄███▄
    ██     ██   ▄█▀██ ██    ██   ██ ██
  ▀██▀     ▀██▄▄▀█▄██▄▀███▄▄█▀  ▄▀███▀
-
-                ▄▄▄▄▄▄
-               █▀██▀▀██        █▄             █▄
-                 ██   ██      ▄██▄           ▄██▄      ▄
-                 ██   ██ ▄█▀█▄ ██ ▄█▀█▄ ▄███▀ ██ ▄███▄ ████▄
-               ▄ ██   ██ ██▄█▀ ██ ██▄█▀ ██    ██ ██ ██ ██
-               ▀██▀███▀ ▄▀█▄▄▄▄██▄▀█▄▄▄▄▀███▄▄██▄▀███▀▄█▀
 "@ -ForegroundColor Magenta
 
-    Write-Host "  MacroDetector" -ForegroundColor Magenta -NoNewline
+    Write-Host "  MacroDetector v2.5" -ForegroundColor Magenta -NoNewline
     Write-Host "  |  " -ForegroundColor DarkGray -NoNewline
     Write-Host "@imnicc.dll" -ForegroundColor Cyan
     Write-Host "  PC Owner: " -ForegroundColor DarkGray -NoNewline
@@ -837,22 +463,15 @@ function Main {
     $wmiMice = Get-ConnectedMice
     $regMice = Get-RegistryHistory
     $btMice  = Get-BluetoothDevices
-
     $allMice = New-Object System.Collections.Generic.List[PSCustomObject]
     foreach ($m in $wmiMice) { $allMice.Add($m) }
     foreach ($m in ($regMice + $btMice)) {
         $dupe = $false
-        foreach ($x in $allMice) {
-            if (-not [string]::IsNullOrEmpty($x.DeviceId) -and -not [string]::IsNullOrEmpty($m.DeviceId) -and $x.DeviceId.Equals($m.DeviceId, [StringComparison]::OrdinalIgnoreCase)) { $dupe = $true; break }
-        }
+        foreach ($x in $allMice) { if (-not [string]::IsNullOrEmpty($x.DeviceId) -and -not [string]::IsNullOrEmpty($m.DeviceId) -and $x.DeviceId.Equals($m.DeviceId, [StringComparison]::OrdinalIgnoreCase)) { $dupe = $true; break } }
         if (-not $dupe) { $allMice.Add($m) }
     }
-
     $recentMice = [System.Collections.Generic.List[PSCustomObject]]::new()
-    foreach ($m in $allMice) {
-        if ($m.IsConnected) { $recentMice.Add($m); continue }
-        if ($m.ConnectedAt -and $m.ConnectedAt -ge $cutoff) { $recentMice.Add($m) }
-    }
+    foreach ($m in $allMice) { if ($m.IsConnected) { $recentMice.Add($m); continue } if ($m.ConnectedAt -and $m.ConnectedAt -ge $cutoff) { $recentMice.Add($m) } }
 
     if ($recentMice.Count -gt 0) {
         Write-Host "  Detected Mice (recent):" -ForegroundColor Cyan
@@ -860,8 +479,7 @@ function Main {
             $tag = if ($m.IsConnected) { "connected" } else { "history" }
             Write-Host "    " -NoNewline
             if ($m.IsConnected) { Write-Host "$tag" -ForegroundColor Green -NoNewline } else { Write-Host "$tag" -ForegroundColor DarkGray -NoNewline }
-            Write-Host "  " -NoNewline
-            Write-Host "$($m.Name)" -ForegroundColor White -NoNewline
+            Write-Host "  " -NoNewline; Write-Host "$($m.Name)" -ForegroundColor White -NoNewline
             if ($m.Brand -ne "Unknown") { Write-Host "  [$($m.Brand)]" -ForegroundColor DarkMagenta -NoNewline }
             Write-Host ""
         }
@@ -872,117 +490,88 @@ function Main {
     if ($installed.Count -gt 0) {
         Write-Host "`n  Installed Software:" -ForegroundColor Cyan
         foreach ($s in ($installed | Sort-Object Brand)) {
-            Write-Host "    " -NoNewline
-            Write-Host "$($s.SoftwareName)" -ForegroundColor White -NoNewline
+            Write-Host "    " -NoNewline; Write-Host "$($s.SoftwareName)" -ForegroundColor White -NoNewline
             Write-Host "  [$($s.Brand)]" -ForegroundColor DarkMagenta -NoNewline
             if ($s.Version) { Write-Host " v$($s.Version)" -ForegroundColor DarkGray -NoNewline }
             Write-Host ""
         }
     }
 
-    # 3. SOFTWARE DIRECTORIES
-    $liveSw = @()
-    foreach ($sw in $SoftwareProfiles) {
-        foreach ($p in $sw.Paths) {
-            if (Test-Path $p) { $liveSw += $sw.Name; break }
-        }
-    }
-    if ($liveSw.Count -gt 0) {
-        Write-Host "`n  Software Directories:" -ForegroundColor Cyan
-        foreach ($name in ($liveSw | Sort-Object -Unique)) {
-            Write-Host "    $name" -ForegroundColor White
-        }
-    }
-
-    # 4. CONTENT SCAN (last 20 min)
+    # 3. EXACT MACRO FILE SCANNER (The main feature requested)
+    Show-Section "Macro File Detection (Last 20 Mins)"
     $scanResults = Invoke-ContentScan -RecentMins 20
     $macroFiles = $scanResults | Where-Object { $_.HasMacro }
     $otherFiles = $scanResults | Where-Object { -not $_.HasMacro }
 
-    if ($scanResults.Count -gt 0) {
-        Write-Host "`n  Scanned Files (modified <20min):" -ForegroundColor Cyan
-    }
-
     if ($macroFiles.Count -gt 0) {
-        Write-Host "`n  Macro Content Detected:" -ForegroundColor Cyan
         foreach ($f in ($macroFiles | Sort-Object LastModified -Descending)) {
-            $sw = $f.Software
-            Write-Host "    " -NoNewline; Write-Host "!" -ForegroundColor Red -NoNewline
-            Write-Host " $sw" -ForegroundColor DarkMagenta -NoNewline
-            Write-Host " | $(Split-Path $f.FilePath -Leaf)" -ForegroundColor Yellow
-            Write-Host "        $($f.FilePath)" -ForegroundColor DarkGray
-            Write-Host "        Modified: $($f.LastModified)" -ForegroundColor DarkGray
-            if ($f.MacroHits.Count -gt 0) {
-                $hitStr = $f.MacroHits -join ", "
-                Write-Host "        Hits: $hitStr" -ForegroundColor Red
-            }
+            Write-Host "    [!] MACROS DETECTED & MODIFIED IN: " -NoNewline -ForegroundColor Red -BackgroundColor DarkRed
+            Write-Host "$($f.Software)" -ForegroundColor Yellow
+            Write-Host "        FILE: " -NoNewline -ForegroundColor White
+            Write-Host "$($f.FilePath)" -ForegroundColor Yellow
+            Write-Host "        MODIFIED: " -NoNewline -ForegroundColor DarkGray
+            Write-Host "$($f.LastModified)" -ForegroundColor White
+            Write-Host "        SIZE: " -NoNewline -ForegroundColor DarkGray
+            Write-Host "$(Format-Bytes -bytes $f.SizeBytes)" -ForegroundColor White
+            
             $procs = Get-ProcessStatus -Names $f.Processes
             if ($procs.Count -gt 0) {
-                Write-Host "        RUNNING: $($procs -join ', ')" -ForegroundColor Red -BackgroundColor DarkRed
+                Write-Host "        STATUS: " -NoNewline -ForegroundColor DarkGray
+                Write-Host "SOFTWARE IS ACTIVELY RUNNING ($($procs -join ', '))" -ForegroundColor Red -BackgroundColor DarkRed
             }
             Write-Host ""
         }
+    } else {
+        Write-Host "    No macro strings detected in recently modified files." -ForegroundColor DarkGray
     }
 
-    if ($otherFiles.Count -gt 0) {
-        Write-Host "  Recently Modified (no macro strings):" -ForegroundColor DarkGray
-        foreach ($f in ($otherFiles | Sort-Object LastModified -Descending)) {
-            Write-Host "    " -NoNewline
-            Write-Host "$(Split-Path $f.FilePath -Leaf)" -ForegroundColor DarkGray -NoNewline
-            Write-Host "  $($f.LastModified)" -ForegroundColor DarkGray
-        }
-    }
-
-    # 5. CONFIG FILE EXISTENCE MAP (Filtered to last 20 mins)
+    # 4. CONFIG MAP DEEP SCAN (If a folder was modified, find the EXACT file inside with macros)
     $configs = Scan-ConfigFiles
-    $foundConfigs = $configs | Where-Object { $_.Exists -and $_.LastModified -and $_.LastModified -ge $cutoff }
-    $macroConfigs = $foundConfigs | Where-Object { $_.IsMacro }
-
+    $foundConfigs = $configs | Where-Object { $_.Exists -and $_.LastModified -and $_.LastModified -ge $cutoff -and $_.IsMacro }
+    
     if ($foundConfigs.Count -gt 0) {
-        Show-Section "Config File Map (Last 20 Mins)"
-        foreach ($c in ($foundConfigs | Sort-Object Brand, SoftwareName)) {
-            $tag = if ($c.IsMacro) { "[MACRO]" } else { "[DATA]"  }
-            $col = if ($c.IsMacro) { "Red"    } else { "DarkGray" }
-            Write-Host "    " -NoNewline
-            Write-Host "$tag" -ForegroundColor $col -NoNewline
-            Write-Host " " -NoNewline
-            Write-Host "$($c.Brand)" -ForegroundColor DarkMagenta -NoNewline
-            Write-Host " - " -NoNewline
-            Write-Host "$($c.SoftwareName)" -ForegroundColor White
-            Write-Host "        $($c.FilePath)" -ForegroundColor DarkGray
+        Show-Section "Deep Directory Trace (Last 20 Mins)"
+        
+        foreach ($c in $foundConfigs) {
+            Write-Host "    Scanning: " -NoNewline -ForegroundColor DarkGray
+            Write-Host "$($c.Brand) - $($c.SoftwareName)" -ForegroundColor White
             
             if ($c.IsDirectory) {
-                # DEEP SCAN: Find exactly which file inside has the macro
-                $exactMacroFiles = Find-MacroFilesInDirectory -DirectoryPath $c.FilePath -Cutoff $cutoff
+                $exactFiles = Get-ExplicitMacroFiles -DirectoryPath $c.FilePath -Cutoff $cutoff
                 
-                if ($exactMacroFiles.Count -gt 0) {
-                    foreach ($mf in $exactMacroFiles) {
-                        Write-Host "        " -NoNewline; Write-Host "[!] MACRO FOUND IN: " -ForegroundColor Red -NoNewline
+                if ($exactFiles.Count -gt 0) {
+                    foreach ($mf in $exactFiles) {
+                        Write-Host "        [!] MACROS MODIFIED IN FILE: " -NoNewline -ForegroundColor Red
                         Write-Host "$($mf.Name)" -ForegroundColor Yellow
-                        Write-Host "            Path: $($mf.FullPath)" -ForegroundColor DarkGray
-                        Write-Host "            Modified: $($mf.LastModified) | Size: $(Format-Bytes -bytes $mf.SizeBytes)" -ForegroundColor DarkGray
+                        Write-Host "            FULL PATH: " -NoNewline -ForegroundColor DarkGray
+                        Write-Host "$($mf.FullPath)" -ForegroundColor Yellow
+                        Write-Host "            MODIFIED: " -NoNewline -ForegroundColor DarkGray
+                        Write-Host "$($mf.LastModified)" -ForegroundColor White
                     }
                 } else {
-                    Write-Host "        Scanned <20m files: No direct macro strings found." -ForegroundColor DarkGray
+                    Write-Host "        -> Folder was modified, but exact macro file not changed in <20m." -ForegroundColor DarkGray
                 }
             } else {
-                if ($c.LastModified) {
-                    Write-Host "        Last Modified: $($c.LastModified)" -ForegroundColor DarkGray
-                }
-                if ($c.SizeBytes -ne $null) {
-                    Write-Host "        Size: $(Format-Bytes -bytes $c.SizeBytes)" -ForegroundColor DarkGray
+                # It's a single file that was modified
+                if (Find-ExplicitMacrosInFile -FilePath $c.FilePath) {
+                    Write-Host "        [!] MACROS MODIFIED IN FILE: " -NoNewline -ForegroundColor Red
+                    Write-Host "$(Split-Path $c.FilePath -Leaf)" -ForegroundColor Yellow
+                    Write-Host "            FULL PATH: " -NoNewline -ForegroundColor DarkGray
+                    Write-Host "$($c.FilePath)" -ForegroundColor Yellow
+                    Write-Host "            MODIFIED: " -NoNewline -ForegroundColor DarkGray
+                    Write-Host "$($c.LastModified)" -ForegroundColor White
+                } else {
+                    Write-Host "        -> File was modified, but contains no macro strings." -ForegroundColor DarkGray
                 }
             }
             Write-Host ""
         }
     }
 
-    # 6. RUNNING PROCESSES
+    # 5. RUNNING PROCESSES
     Show-Section "Running Macro Software Processes"
     $allProcNames = @()
-    foreach ($sw in $SoftwareProfiles) {
-        foreach ($p in $sw.Proc) { $allProcNames += $p }
-    }
+    foreach ($sw in $SoftwareProfiles) { foreach ($p in $sw.Proc) { $allProcNames += $p } }
     $allProcNames = $allProcNames | Sort-Object -Unique
     $foundRunning = $false
     foreach ($pn in $allProcNames) {
@@ -990,112 +579,41 @@ function Main {
         if ($procs) {
             $foundRunning = $true
             foreach ($p in $procs) {
-                Write-Host "    " -NoNewline
-                Write-Host "[RUNNING]" -ForegroundColor Red -BackgroundColor DarkRed -NoNewline
-                Write-Host " $($p.ProcessName)" -ForegroundColor White -NoNewline
-                Write-Host "  PID: $($p.Id)" -ForegroundColor DarkGray -NoNewline
-                Write-Host "  Memory: $(Format-Bytes -bytes $p.WorkingSet64)" -ForegroundColor DarkGray
+                Write-Host "    [RUNNING] " -NoNewline -ForegroundColor Red -BackgroundColor DarkRed
+                Write-Host "$($p.ProcessName)" -ForegroundColor White -NoNewline
+                Write-Host "  PID: $($p.Id)  Memory: $(Format-Bytes -bytes $p.WorkingSet64)" -ForegroundColor DarkGray
             }
         }
     }
-    if (-not $foundRunning) {
-        Write-Host "    No macro software processes detected." -ForegroundColor DarkGray
-    }
+    if (-not $foundRunning) { Write-Host "    No macro software processes detected." -ForegroundColor DarkGray }
 
-    # 7. WILDCARD PREFETCH ARTIFACTS SCAN (Filtered to last 20 mins)
+    # 6. PREFETCH
     Show-Section "Prefetch Artifacts (Last 20 Mins)"
     $prefetchResults = Invoke-PrefetchScan -Cutoff $cutoff
     if ($prefetchResults.Count -gt 0) {
         foreach ($pf in ($prefetchResults | Sort-Object LastModified -Descending)) {
-            Write-Host "    " -NoNewline
-            Write-Host "[PREFETCH]" -ForegroundColor Yellow -NoNewline
-            Write-Host " $($pf.FileName)" -ForegroundColor White
-            Write-Host "        Size: $(Format-Bytes -bytes $pf.SizeBytes)" -ForegroundColor DarkGray
-            Write-Host "        Last Modified: $($pf.LastModified)" -ForegroundColor DarkGray
-            Write-Host ""
+            Write-Host "    [PREFETCH] " -NoNewline -ForegroundColor Yellow
+            Write-Host "$($pf.FileName)" -ForegroundColor White
+            Write-Host "        Modified: $($pf.LastModified) | Size: $(Format-Bytes -bytes $pf.SizeBytes)" -ForegroundColor DarkGray
         }
-    } else {
-        Write-Host "    No macro software prefetch artifacts modified in the last 20 minutes." -ForegroundColor DarkGray
-    }
+    } else { Write-Host "    No macro software prefetch artifacts modified in the last 20 minutes." -ForegroundColor DarkGray }
 
-    # 8. LGHUB_BKP DEEP SCAN (Filtered to last 20 mins)
-    $bkpPath = "$env:APPDATA\LGHUB_BKP"
-    if (Test-Path $bkpPath) {
-        Show-Section "LGHUB Backup Folder Contents (Last 20 Mins)"
-        try {
-            $bkpItems = Get-ChildItem -Path $bkpPath -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $cutoff }
-            if ($bkpItems.Count -eq 0) {
-                Write-Host "    No items modified in the last 20 minutes." -ForegroundColor DarkGray
-            } else {
-                foreach ($item in ($bkpItems | Sort-Object LastWriteTime -Descending)) {
-                    $isDir = $item.PSIsContainer
-                    $typeLabel = if ($isDir) { "[DIR]" } else { "[FILE]" }
-                    $typeCol   = if ($isDir) { "DarkCyan" } else { "White" }
-                    Write-Host "    " -NoNewline
-                    Write-Host "$typeLabel" -ForegroundColor $typeCol -NoNewline
-                    Write-Host " $($item.Name)" -ForegroundColor White
-                    Write-Host "        $($item.FullName)" -ForegroundColor DarkGray
-                    Write-Host "        Modified: $($item.LastWriteTime)" -ForegroundColor DarkGray
-                    if (-not $isDir) {
-                        Write-Host "        Size: $(Format-Bytes -bytes $item.Length)" -ForegroundColor DarkGray
-                    }
-                    Write-Host ""
-                }
-            }
-        } catch {
-            Write-Host "    Error scanning backup folder." -ForegroundColor DarkGray
-        }
-    }
-
-    # 9. LGHUB ProgramData DEEP SCAN (Filtered to last 20 mins)
-    $lgProgData = "C:\ProgramData\LGHUBData\applications"
-    if (Test-Path $lgProgData) {
-        Show-Section "G HUB ProgramData Applications (Last 20 Mins)"
-        try {
-            $appItems = Get-ChildItem -Path $lgProgData -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $cutoff }
-            if ($appItems.Count -eq 0) {
-                Write-Host "    No items modified in the last 20 minutes." -ForegroundColor DarkGray
-            } else {
-                foreach ($item in ($appItems | Sort-Object LastWriteTime -Descending)) {
-                    $isDir = $item.PSIsContainer
-                    $typeLabel = if ($isDir) { "[DIR]" } else { "[FILE]" }
-                    $typeCol   = if ($isDir) { "DarkCyan" } else { "White" }
-                    Write-Host "    " -NoNewline
-                    Write-Host "$typeLabel" -ForegroundColor $typeCol -NoNewline
-                    Write-Host " $($item.Name)" -ForegroundColor White
-                    Write-Host "        $($item.FullName)" -ForegroundColor DarkGray
-                    Write-Host "        Modified: $($item.LastWriteTime)" -ForegroundColor DarkGray
-                    if (-not $isDir) {
-                        Write-Host "        Size: $(Format-Bytes -bytes $item.Length)" -ForegroundColor DarkGray
-                    }
-                    Write-Host ""
-                }
-            }
-        } catch {
-            Write-Host "    Error scanning ProgramData (requires Admin)." -ForegroundColor DarkGray
-        }
-    }
-
-    # 10. SUMMARY
+    # 7. SUMMARY
     Show-Section "Summary"
-    $macroDirCount  = ($macroConfigs | Where-Object { $_.IsDirectory }).Count
-    $macroFileCount = ($macroConfigs | Where-Object { -not $_.IsDirectory }).Count
-    $runningCount   = 0
+    $runningCount = 0
     foreach ($pn in $allProcNames) { $runningCount += (Get-Process -Name $pn -ErrorAction SilentlyContinue).Count }
 
     Show-Field "Mice detected"       "$($recentMice.Count) recent" "White"
     Show-Field "Software installed"  "$($installed.Count) packages" "White"
-    Show-Field "Macro dirs found"    "$macroDirCount"                $(if ($macroDirCount -gt 0) { "Red" } else { "Green" })
-    Show-Field "Macro files found"   "$macroFileCount"              $(if ($macroFileCount -gt 0) { "Red" } else { "Green" })
-    Show-Field "Macro content hits"  "$($macroFiles.Count)"         $(if ($macroFiles.Count -gt 0) { "Red" } else { "Green" })
+    Show-Field "Macro files modified" "$($macroFiles.Count)"          $(if ($macroFiles.Count -gt 0) { "Red" } else { "Green" })
     Show-Field "Running processes"   "$runningCount"                 $(if ($runningCount -gt 0) { "Red" } else { "Green" })
     Show-Field "Prefetch artifacts"  "$($prefetchResults.Count)"     $(if ($prefetchResults.Count -gt 0) { "Yellow" } else { "Green" })
 
     Write-Host ""
     if ($macroFiles.Count -gt 0 -or $runningCount -gt 0) {
         Show-Warn "Macro software activity detected on this system."
-    } elseif ($macroConfigs.Count -gt 0 -or $prefetchResults.Count -gt 0) {
-        Show-Alert "Macro software traces found but no active usage detected."
+    } elseif ($foundConfigs.Count -gt 0) {
+        Show-Alert "Macro software traces found but no direct macro strings modified in <20m."
     } else {
         Show-Good "No macro software traces detected."
     }
@@ -1105,5 +623,4 @@ function Main {
     Write-Host ""
 }
 
-# --- ENTRY POINT ---
 Main
