@@ -4,12 +4,12 @@
 .DESCRIPTION
     A comprehensive forensic mouse device and macro software configuration analysis tool.
 .NOTES
-    Compatible with Windows 10 and Windows 11. Requires Administrative privileges for full registry analysis.
-    v2.0 - Expanded Razer LocalAppData detection, BLE/Bluetooth improvements, richer config coverage.
+    Compatible with Windows 10 and Windows 11. Requires Administrative privileges for full registry and Prefetch analysis.
+    v2.2 - Replaced hardcoded Prefetch hash with dynamic wildcard scanner for all target executables.
 #>
 
 # --- BRAND DETECTION ENGINE ---
-$BrandMap = @(
+ $BrandMap = @(
     @{ Keyword = "attack shark";  Brand = "Attack Shark" }
     @{ Keyword = "attackshark";   Brand = "Attack Shark" }
     @{ Keyword = "logitech";      Brand = "Logitech" }
@@ -288,7 +288,7 @@ function Get-BluetoothDevices {
 }
 
 # --- 2. SOFTWARE REGISTRY SCANNER ---
-$KnownSoftware = @(
+ $KnownSoftware = @(
     @{ Keyword = "logi options+";             Brand = "Logitech";     Name = "Logitech Options+" }
     @{ Keyword = "logi options";              Brand = "Logitech";     Name = "Logitech Options" }
     @{ Keyword = "lghub";                     Brand = "Logitech";     Name = "Logitech G HUB" }
@@ -409,154 +409,158 @@ function Scan-InstalledSoftware {
 }
 
 # --- 3. CONFIG FILE ENTRIES ---
-$ConfigEntries = @(
+ $ConfigEntries = @(
 
     # -- LOGITECH --
-    @{ Brand = "Logitech";    Name = "G HUB - settings.db";       Path = "$env:LOCALAPPDATA\LGHUB\settings.db";                                          IsMacro = $true  }
-    @{ Brand = "Logitech";    Name = "G HUB - Macros folder";      Path = "$env:LOCALAPPDATA\LGHUB";                                                      IsMacro = $true  }
-    @{ Brand = "Logitech";    Name = "Options+ - options_plus.db"; Path = "$env:LOCALAPPDATA\Logi\LogiOptionsPlus\data\options_plus.db";                   IsMacro = $false }
-    @{ Brand = "Logitech";    Name = "Gaming Software - settings"; Path = "$env:LOCALAPPDATA\Logitech\Logitech Gaming Software\settings.json";             IsMacro = $true  }
+    @{ Brand = "Logitech";    Name = "G HUB - settings.db";              Path = "$env:LOCALAPPDATA\LGHUB\settings.db";                                          IsMacro = $true  }
+    @{ Brand = "Logitech";    Name = "G HUB - Macros folder";            Path = "$env:LOCALAPPDATA\LGHUB";                                                      IsMacro = $true  }
+    @{ Brand = "Logitech";    Name = "Options+ - options_plus.db";       Path = "$env:LOCALAPPDATA\Logi\LogiOptionsPlus\data\options_plus.db";                   IsMacro = $false }
+    @{ Brand = "Logitech";    Name = "Gaming Software - settings";       Path = "$env:LOCALAPPDATA\Logitech\Logitech Gaming Software\settings.json";             IsMacro = $true  }
+
+    # -- LOGITECH (extended) --
+    @{ Brand = "Logitech";    Name = "G HUB - ProgramData applications"; Path = "C:\ProgramData\LGHUBData\applications";                                       IsMacro = $true  }
+    @{ Brand = "Logitech";    Name = "G HUB - Roaming Backup";          Path = "$env:APPDATA\LGHUB_BKP";                                                     IsMacro = $true  }
 
     # -- RAZER - ROAMING APPDATA --
-    @{ Brand = "Razer";       Name = "Synapse 3 - Settings";       Path = "$env:APPDATA\Razer\Synapse3\Settings";                                         IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - MacroData";      Path = "$env:APPDATA\Razer\Synapse3\MacroData";                                        IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - StaticDevConf";  Path = "$env:APPDATA\Razer\Synapse3\StaticDeviceConf.json";                            IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Synapse 3 - Accounts";       Path = "$env:APPDATA\Razer\Synapse3\Accounts";                                         IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Razer Central - Accounts";   Path = "$env:APPDATA\Razer\Razer Central\Accounts";                                    IsMacro = $false }
+    @{ Brand = "Razer";       Name = "Synapse 3 - Settings";            Path = "$env:APPDATA\Razer\Synapse3\Settings";                                         IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Synapse 3 - MacroData";           Path = "$env:APPDATA\Razer\Synapse3\MacroData";                                        IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Synapse 3 - StaticDevConf";       Path = "$env:APPDATA\Razer\Synapse3\StaticDeviceConf.json";                            IsMacro = $false }
+    @{ Brand = "Razer";       Name = "Synapse 3 - Accounts";            Path = "$env:APPDATA\Razer\Synapse3\Accounts";                                         IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Razer Central - Accounts";        Path = "$env:APPDATA\Razer\Razer Central\Accounts";                                    IsMacro = $false }
 
     # -- RAZER - LOCAL APPDATA (primary new detections) --
-    @{ Brand = "Razer";       Name = "Razer - LocalAppData root";  Path = "$env:LOCALAPPDATA\Razer";                                                      IsMacro = $false }
-    @{ Brand = "Razer";       Name = "RazerAppEngine - root";      Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine";                                       IsMacro = $false }
-    @{ Brand = "Razer";       Name = "RazerAppEngine - Cache";     Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\Cache";                                  IsMacro = $false }
-    @{ Brand = "Razer";       Name = "RazerAppEngine - User Data"; Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data";                             IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "RazerAppEngine - Local State";Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data\Local State";                IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Cortex - LocalAppData";Path = "$env:LOCALAPPDATA\Razer\Razer Cortex";                                         IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Cortex - DB";          Path = "$env:LOCALAPPDATA\Razer\Razer Cortex\data.db";                                 IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Cortex - config.json"; Path = "$env:LOCALAPPDATA\Razer\Razer Cortex\config.json";                             IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Central - LocalAppData";Path = "$env:LOCALAPPDATA\Razer\Razer Central";                                       IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Razer Central - settings.db";Path = "$env:LOCALAPPDATA\Razer\Razer Central\settings.db";                            IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Synapse 3 - Accounts";       Path = "$env:LOCALAPPDATA\Razer\Synapse3\Accounts";                                    IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - Cloud Cache";    Path = "$env:LOCALAPPDATA\Razer\Synapse3\Data";                                        IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - Local DB";       Path = "$env:LOCALAPPDATA\Razer\Synapse3\Devices.db";                                  IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - UpdateService";  Path = "$env:LOCALAPPDATA\Razer\UpdateService";                                        IsMacro = $false }
-    @{ Brand = "Razer";       Name = "Synapse 3 - Installer";      Path = "$env:LOCALAPPDATA\Razer\Installer";                                            IsMacro = $false }
-    @{ Brand = "Razer";       Name = "RazerAppEngine - Logs";      Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data\Logs";                         IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "RazerAppEngine - Products";  Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data\Products";                     IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Razer - LocalAppData root";       Path = "$env:LOCALAPPDATA\Razer";                                                      IsMacro = $false }
+    @{ Brand = "Razer";       Name = "RazerAppEngine - root";           Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine";                                       IsMacro = $false }
+    @{ Brand = "Razer";       Name = "RazerAppEngine - Cache";          Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\Cache";                                  IsMacro = $false }
+    @{ Brand = "Razer";       Name = "RazerAppEngine - User Data";      Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data";                             IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "RazerAppEngine - Local State";    Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data\Local State";                IsMacro = $false }
+    @{ Brand = "Razer";       Name = "Razer Cortex - LocalAppData";     Path = "$env:LOCALAPPDATA\Razer\Razer Cortex";                                         IsMacro = $false }
+    @{ Brand = "Razer";       Name = "Razer Cortex - DB";               Path = "$env:LOCALAPPDATA\Razer\Razer Cortex\data.db";                                 IsMacro = $false }
+    @{ Brand = "Razer";       Name = "Razer Cortex - config.json";      Path = "$env:LOCALAPPDATA\Razer\Razer Cortex\config.json";                             IsMacro = $false }
+    @{ Brand = "Razer";       Name = "Razer Central - LocalAppData";    Path = "$env:LOCALAPPDATA\Razer\Razer Central";                                       IsMacro = $false }
+    @{ Brand = "Razer";       Name = "Razer Central - settings.db";     Path = "$env:LOCALAPPDATA\Razer\Razer Central\settings.db";                            IsMacro = $false }
+    @{ Brand = "Razer";       Name = "Synapse 3 - Accounts (Local)";    Path = "$env:LOCALAPPDATA\Razer\Synapse3\Accounts";                                    IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Synapse 3 - Cloud Cache";         Path = "$env:LOCALAPPDATA\Razer\Synapse3\Data";                                        IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Synapse 3 - Local DB";            Path = "$env:LOCALAPPDATA\Razer\Synapse3\Devices.db";                                  IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Synapse 3 - UpdateService";       Path = "$env:LOCALAPPDATA\Razer\UpdateService";                                        IsMacro = $false }
+    @{ Brand = "Razer";       Name = "Synapse 3 - Installer";           Path = "$env:LOCALAPPDATA\Razer\Installer";                                            IsMacro = $false }
+    @{ Brand = "Razer";       Name = "RazerAppEngine - Logs";           Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data\Logs";                         IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "RazerAppEngine - Products";       Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\User Data\Products";                     IsMacro = $true  }
 
     # -- RAZER - PROGRAMDATA --
-    @{ Brand = "Razer";       Name = "Synapse 3 - Service Log";    Path = "$env:PROGRAMDATA\Razer\Synapse3\Log\SynapseService.log";                       IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Synapse 3 - ProgramData";    Path = "$env:PROGRAMDATA\Razer\Synapse3";                                              IsMacro = $true  }
-    @{ Brand = "Razer";       Name = "Razer Central - ProgramData";Path = "$env:PROGRAMDATA\Razer\Razer Central";                                         IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Synapse 3 - Service Log";         Path = "$env:PROGRAMDATA\Razer\Synapse3\Log\SynapseService.log";                       IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Synapse 3 - ProgramData";         Path = "$env:PROGRAMDATA\Razer\Synapse3";                                              IsMacro = $true  }
+    @{ Brand = "Razer";       Name = "Razer Central - ProgramData";     Path = "$env:PROGRAMDATA\Razer\Razer Central";                                         IsMacro = $true  }
 
     # -- STEELSERIES --
-    @{ Brand = "SteelSeries"; Name = "GG - gg.db";                 Path = "$env:APPDATA\SteelSeries\GG\db\gg.db";                                        IsMacro = $true  }
+    @{ Brand = "SteelSeries"; Name = "GG - gg.db";                      Path = "$env:APPDATA\SteelSeries\GG\db\gg.db";                                        IsMacro = $true  }
 
     # -- CORSAIR --
-    @{ Brand = "Corsair";     Name = "iCUE 5 - config.db";         Path = "$env:APPDATA\Corsair\CUE5\config.db";                                         IsMacro = $true  }
-    @{ Brand = "Corsair";     Name = "iCUE 4 - config.db";         Path = "$env:APPDATA\Corsair\CUE4\config.db";                                         IsMacro = $true  }
-    @{ Brand = "Corsair";     Name = "iCUE - Config.cuecfg";       Path = "$env:APPDATA\corsair\CUE\Config.cuecfg";                                       IsMacro = $true  }
+    @{ Brand = "Corsair";     Name = "iCUE 5 - config.db";              Path = "$env:APPDATA\Corsair\CUE5\config.db";                                         IsMacro = $true  }
+    @{ Brand = "Corsair";     Name = "iCUE 4 - config.db";              Path = "$env:APPDATA\Corsair\CUE4\config.db";                                         IsMacro = $true  }
+    @{ Brand = "Corsair";     Name = "iCUE - Config.cuecfg";            Path = "$env:APPDATA\corsair\CUE\Config.cuecfg";                                       IsMacro = $true  }
 
     # -- ROCCAT --
-    @{ Brand = "ROCCAT";      Name = "Swarm - settings.xml";        Path = "$env:APPDATA\ROCCAT\ROCCAT Swarm\settings.xml";                               IsMacro = $false }
-    @{ Brand = "ROCCAT";      Name = "Swarm - macro folder";        Path = "$env:APPDATA\ROCCAT\SWARM\macro";                                             IsMacro = $true  }
-    @{ Brand = "ROCCAT";      Name = "Swarm - preset macros";       Path = "$env:APPDATA\ROCCAT\SWARM\preset_macro";                                      IsMacro = $true  }
-    @{ Brand = "ROCCAT";      Name = "Connect - settings.db";       Path = "$env:APPDATA\ROCCAT\ROCCAT Connect\settings.db";                              IsMacro = $false }
+    @{ Brand = "ROCCAT";      Name = "Swarm - settings.xml";             Path = "$env:APPDATA\ROCCAT\ROCCAT Swarm\settings.xml";                               IsMacro = $false }
+    @{ Brand = "ROCCAT";      Name = "Swarm - macro folder";             Path = "$env:APPDATA\ROCCAT\SWARM\macro";                                             IsMacro = $true  }
+    @{ Brand = "ROCCAT";      Name = "Swarm - preset macros";            Path = "$env:APPDATA\ROCCAT\SWARM\preset_macro";                                      IsMacro = $true  }
+    @{ Brand = "ROCCAT";      Name = "Connect - settings.db";            Path = "$env:APPDATA\ROCCAT\ROCCAT Connect\settings.db";                              IsMacro = $false }
 
     # -- GLORIOUS --
-    @{ Brand = "Glorious";    Name = "CORE - config.json";          Path = "$env:APPDATA\glorious-core-app\config.json";                                  IsMacro = $false }
-    @{ Brand = "Glorious";    Name = "CORE - settings.db";          Path = "$env:LOCALAPPDATA\GloriousCore\settings.db";                                  IsMacro = $true  }
-    @{ Brand = "Glorious";    Name = "BYCOMBO-2 - Macros";          Path = "$env:APPDATA\BYCOMBO-2\Mac";                                                  IsMacro = $true  }
+    @{ Brand = "Glorious";    Name = "CORE - config.json";               Path = "$env:APPDATA\glorious-core-app\config.json";                                  IsMacro = $false }
+    @{ Brand = "Glorious";    Name = "CORE - settings.db";               Path = "$env:LOCALAPPDATA\GloriousCore\settings.db";                                  IsMacro = $true  }
+    @{ Brand = "Glorious";    Name = "BYCOMBO-2 - Macros";               Path = "$env:APPDATA\BYCOMBO-2\Mac";                                                  IsMacro = $true  }
 
     # -- ATTACK SHARK --
-    @{ Brand = "Attack Shark"; Name = "Software - config.json";     Path = "$env:APPDATA\AttackShark\config.json";                                        IsMacro = $false }
-    @{ Brand = "Attack Shark"; Name = "Software - settings.db";     Path = "$env:LOCALAPPDATA\AttackShark\settings.db";                                   IsMacro = $true  }
-    @{ Brand = "Attack Shark"; Name = "ProgramData config";         Path = "$env:PROGRAMDATA\AttackShark\config.json";                                    IsMacro = $false }
+    @{ Brand = "Attack Shark"; Name = "Software - config.json";          Path = "$env:APPDATA\AttackShark\config.json";                                        IsMacro = $false }
+    @{ Brand = "Attack Shark"; Name = "Software - settings.db";          Path = "$env:LOCALAPPDATA\AttackShark\settings.db";                                   IsMacro = $true  }
+    @{ Brand = "Attack Shark"; Name = "ProgramData config";              Path = "$env:PROGRAMDATA\AttackShark\config.json";                                    IsMacro = $false }
 
     # -- ASUS --
-    @{ Brand = "ASUS";        Name = "Armoury Crate - settings.db"; Path = "$env:LOCALAPPDATA\ASUS\ArmouryCrate\settings.db";                            IsMacro = $true  }
-    @{ Brand = "ASUS";        Name = "ROG Armoury - Macros";        Path = "$env:USERPROFILE\Documents\ASUS\ROG\ROG Armoury\common";                     IsMacro = $true  }
+    @{ Brand = "ASUS";        Name = "Armoury Crate - settings.db";      Path = "$env:LOCALAPPDATA\ASUS\ArmouryCrate\settings.db";                            IsMacro = $true  }
+    @{ Brand = "ASUS";        Name = "ROG Armoury - Macros";             Path = "$env:USERPROFILE\Documents\ASUS\ROG\ROG Armoury\common";                     IsMacro = $true  }
 
     # -- MSI --
-    @{ Brand = "MSI";         Name = "Dragon Center - settings";    Path = "$env:APPDATA\MSI\Dragon Center\settings.json";                               IsMacro = $false }
-    @{ Brand = "MSI";         Name = "MSI Center - settings.db";    Path = "$env:APPDATA\MSI\MSI Center\settings.db";                                    IsMacro = $true  }
+    @{ Brand = "MSI";         Name = "Dragon Center - settings";         Path = "$env:APPDATA\MSI\Dragon Center\settings.json";                               IsMacro = $false }
+    @{ Brand = "MSI";         Name = "MSI Center - settings.db";         Path = "$env:APPDATA\MSI\MSI Center\settings.db";                                    IsMacro = $true  }
 
     # -- HYPERX --
-    @{ Brand = "HyperX";      Name = "NGENUITY - settings.db";      Path = "$env:APPDATA\HyperX\NGENUITY\settings.db";                                   IsMacro = $true  }
-    @{ Brand = "HyperX";      Name = "NGENUITY - Store DB";         Path = "$env:LOCALAPPDATA\Packages\33C30B79.HyperXNGenuity_0a78dr3hq0pvt\LocalState\Settings\setting.db"; IsMacro = $true }
+    @{ Brand = "HyperX";      Name = "NGENUITY - settings.db";           Path = "$env:APPDATA\HyperX\NGENUITY\settings.db";                                   IsMacro = $true  }
+    @{ Brand = "HyperX";      Name = "NGENUITY - Store DB";              Path = "$env:LOCALAPPDATA\Packages\33C30B79.HyperXNGenuity_0a78dr3hq0pvt\LocalState\Settings\setting.db"; IsMacro = $true }
 
     # -- PULSAR --
-    @{ Brand = "Pulsar";      Name = "Fusion - config.json";        Path = "$env:APPDATA\Pulsar\config.json";                                            IsMacro = $false }
+    @{ Brand = "Pulsar";      Name = "Fusion - config.json";             Path = "$env:APPDATA\Pulsar\config.json";                                            IsMacro = $false }
 
     # -- FINALMOUSE --
-    @{ Brand = "Finalmouse";  Name = "Software - settings.db";      Path = "$env:APPDATA\Finalmouse\settings.db";                                        IsMacro = $false }
+    @{ Brand = "Finalmouse";  Name = "Software - settings.db";           Path = "$env:APPDATA\Finalmouse\settings.db";                                        IsMacro = $false }
 
     # -- ZOWIE --
-    @{ Brand = "ZOWIE";       Name = "Mouse Config - config.json";  Path = "$env:APPDATA\ZOWIE\config.json";                                             IsMacro = $false }
+    @{ Brand = "ZOWIE";       Name = "Mouse Config - config.json";       Path = "$env:APPDATA\ZOWIE\config.json";                                             IsMacro = $false }
 
     # -- ENDGAME GEAR --
-    @{ Brand = "Endgame Gear"; Name = "Software - settings.db";     Path = "$env:APPDATA\Endgame Gear\settings.db";                                      IsMacro = $false }
+    @{ Brand = "Endgame Gear"; Name = "Software - settings.db";          Path = "$env:APPDATA\Endgame Gear\settings.db";                                      IsMacro = $false }
 
     # -- BLOODY --
-    @{ Brand = "Bloody";      Name = "Bloody7 - GunLib Macros";     Path = "C:\Program Files (x86)\Bloody7\Bloody7\Data\Mouse\English\ScriptsMacros\GunLib"; IsMacro = $true }
-    @{ Brand = "Bloody";      Name = "Software - config.json";      Path = "$env:APPDATA\Bloody\config.json";                                            IsMacro = $false }
-    @{ Brand = "Bloody";      Name = "Software - settings.db";      Path = "$env:LOCALAPPDATA\Bloody\settings.db";                                       IsMacro = $true  }
+    @{ Brand = "Bloody";      Name = "Bloody7 - GunLib Macros";          Path = "C:\Program Files (x86)\Bloody7\Bloody7\Data\Mouse\English\ScriptsMacros\GunLib"; IsMacro = $true }
+    @{ Brand = "Bloody";      Name = "Software - config.json";           Path = "$env:APPDATA\Bloody\config.json";                                            IsMacro = $false }
+    @{ Brand = "Bloody";      Name = "Software - settings.db";           Path = "$env:LOCALAPPDATA\Bloody\settings.db";                                       IsMacro = $true  }
 
     # -- ALIENWARE --
-    @{ Brand = "Alienware";   Name = "CC - fxmetadata";             Path = "C:\ProgramData\Alienware\AlienWare Command Center\fxmetadata";               IsMacro = $false }
-    @{ Brand = "Alienware";   Name = "CC - config.json";            Path = "$env:PROGRAMDATA\Alienware\AWCCService\config.json";                         IsMacro = $false }
+    @{ Brand = "Alienware";   Name = "CC - fxmetadata";                  Path = "C:\ProgramData\Alienware\AlienWare Command Center\fxmetadata";               IsMacro = $false }
+    @{ Brand = "Alienware";   Name = "CC - config.json";                 Path = "$env:PROGRAMDATA\Alienware\AWCCService\config.json";                         IsMacro = $false }
 
     # -- KENSINGTON --
-    @{ Brand = "Kensington";  Name = "Works - settings.db";         Path = "$env:APPDATA\Kensington\KensingtonWorks\settings.db";                        IsMacro = $false }
+    @{ Brand = "Kensington";  Name = "Works - settings.db";              Path = "$env:APPDATA\Kensington\KensingtonWorks\settings.db";                        IsMacro = $false }
 
     # -- COUGAR --
-    @{ Brand = "Cougar";      Name = "UIX - config.json";           Path = "$env:APPDATA\Cougar\UIX\config.json";                                        IsMacro = $false }
+    @{ Brand = "Cougar";      Name = "UIX - config.json";                Path = "$env:APPDATA\Cougar\UIX\config.json";                                        IsMacro = $false }
 
     # -- REDRAGON --
-    @{ Brand = "Redragon";    Name = "GamingMouse - Macro folder";  Path = "$env:APPDATA\REDRAGON\GamingMouse\Macro";                                    IsMacro = $true  }
-    @{ Brand = "Redragon";    Name = "GamingMouse - config.ini";    Path = "$env:APPDATA\REDRAGON\GamingMouse\config.ini";                               IsMacro = $false }
-    @{ Brand = "Redragon";    Name = "Software - config.json";      Path = "$env:APPDATA\Redragon\config.json";                                          IsMacro = $false }
+    @{ Brand = "Redragon";    Name = "GamingMouse - Macro folder";       Path = "$env:APPDATA\REDRAGON\GamingMouse\Macro";                                    IsMacro = $true  }
+    @{ Brand = "Redragon";    Name = "GamingMouse - config.ini";         Path = "$env:APPDATA\REDRAGON\GamingMouse\config.ini";                               IsMacro = $false }
+    @{ Brand = "Redragon";    Name = "Software - config.json";           Path = "$env:APPDATA\Redragon\config.json";                                          IsMacro = $false }
 
     # -- XENON200 --
-    @{ Brand = "Xenon200";    Name = "Configs folder";              Path = "C:\Program Files (x86)\Xenon200\configs";                                    IsMacro = $false }
+    @{ Brand = "Xenon200";    Name = "Configs folder";                   Path = "C:\Program Files (x86)\Xenon200\configs";                                    IsMacro = $false }
 
     # -- T16 / BYCOMBO --
-    @{ Brand = "T16";         Name = "BY-COMBO - curid.dct";        Path = "$env:LOCALAPPDATA\BY-COMBO\curid.dct";                                       IsMacro = $false }
-    @{ Brand = "T16";         Name = "BY-COMBO - pro.dct";          Path = "$env:LOCALAPPDATA\BY-COMBO\pro.dct";                                         IsMacro = $false }
+    @{ Brand = "T16";         Name = "BY-COMBO - curid.dct";             Path = "$env:LOCALAPPDATA\BY-COMBO\curid.dct";                                       IsMacro = $false }
+    @{ Brand = "T16";         Name = "BY-COMBO - pro.dct";               Path = "$env:LOCALAPPDATA\BY-COMBO\pro.dct";                                         IsMacro = $false }
 
     # -- MARVO --
-    @{ Brand = "Marvo";       Name = "BY-8801 - curid.dct";         Path = "$env:LOCALAPPDATA\BY-8801-GM917-v108\curid.dct";                             IsMacro = $false }
-    @{ Brand = "Marvo";       Name = "BY-8801 - pro.dct";           Path = "$env:LOCALAPPDATA\BY-8801-GM917-v108\pro.dct";                               IsMacro = $false }
+    @{ Brand = "Marvo";       Name = "BY-8801 - curid.dct";              Path = "$env:LOCALAPPDATA\BY-8801-GM917-v108\curid.dct";                             IsMacro = $false }
+    @{ Brand = "Marvo";       Name = "BY-8801 - pro.dct";                Path = "$env:LOCALAPPDATA\BY-8801-GM917-v108\pro.dct";                               IsMacro = $false }
 
     # -- AJAZZ --
-    @{ Brand = "Ajazz";       Name = "BYCOMBO-2 - Macros (Local)";  Path = "$env:LOCALAPPDATA\BYCOMBO-2\Mac";                                            IsMacro = $true  }
-    @{ Brand = "Ajazz";       Name = "BYCOMBO-2 - Macros (Roam)";   Path = "$env:APPDATA\BYCOMBO-2\Mac";                                                 IsMacro = $true  }
+    @{ Brand = "Ajazz";       Name = "BYCOMBO-2 - Macros (Local)";       Path = "$env:LOCALAPPDATA\BYCOMBO-2\Mac";                                            IsMacro = $true  }
+    @{ Brand = "Ajazz";       Name = "BYCOMBO-2 - Macros (Roam)";        Path = "$env:APPDATA\BYCOMBO-2\Mac";                                                 IsMacro = $true  }
 
     # -- KROM KOLT --
-    @{ Brand = "Krom Kolt";   Name = "KROM KOLT - sequence.dat";    Path = "$env:LOCALAPPDATA\VirtualStore\Program Files (x86)\KROM KOLT\Config\sequence.dat"; IsMacro = $true }
+    @{ Brand = "Krom Kolt";   Name = "KROM KOLT - sequence.dat";         Path = "$env:LOCALAPPDATA\VirtualStore\Program Files (x86)\KROM KOLT\Config\sequence.dat"; IsMacro = $true }
 
     # -- BLACKWEB --
-    @{ Brand = "Blackweb";    Name = "Gaming AP - config";          Path = "C:\Blackweb Gaming AP\config";                                               IsMacro = $false }
+    @{ Brand = "Blackweb";    Name = "Gaming AP - config";               Path = "C:\Blackweb Gaming AP\config";                                               IsMacro = $false }
 
     # -- SPC GEAR --
-    @{ Brand = "SPC Gear";    Name = "LIX - install folder";        Path = "C:\Program Files (x86)\SPC Gear";                                            IsMacro = $false }
+    @{ Brand = "SPC Gear";    Name = "LIX - install folder";             Path = "C:\Program Files (x86)\SPC Gear";                                            IsMacro = $false }
 
     # -- AYAX --
-    @{ Brand = "Ayax";        Name = "GamingMouse - record.ini";    Path = "C:\Program Files\AYAX GamingMouse\record.ini";                               IsMacro = $true  }
+    @{ Brand = "Ayax";        Name = "GamingMouse - record.ini";         Path = "C:\Program Files\AYAX GamingMouse\record.ini";                               IsMacro = $true  }
 
     # -- MARSGAMING --
-    @{ Brand = "Marsgaming";  Name = "MMGX - macro module";         Path = "C:\Program Files (x86)\MARSGAMING\MMGX\modules\macro";                       IsMacro = $true  }
+    @{ Brand = "Marsgaming";  Name = "MMGX - macro module";              Path = "C:\Program Files (x86)\MARSGAMING\MMGX\modules\macro";                       IsMacro = $true  }
 
     # -- MOTOSPEED --
-    @{ Brand = "Motospeed";   Name = "Gaming Mouse - modules";      Path = "C:\Program Files (x86)\MotoSpeed Gaming Mouse\V60\modules";                  IsMacro = $false }
+    @{ Brand = "Motospeed";   Name = "Gaming Mouse - modules";            Path = "C:\Program Files (x86)\MotoSpeed Gaming Mouse\V60\modules";                  IsMacro = $false }
 
     # -- COOLERMASTER --
-    @{ Brand = "CoolerMaster"; Name = "MasterPlus - folder";        Path = "C:\Program Files (x86)\CoolerMaster\MasterPlus";                             IsMacro = $false }
+    @{ Brand = "CoolerMaster"; Name = "MasterPlus - folder";             Path = "C:\Program Files (x86)\CoolerMaster\MasterPlus";                             IsMacro = $false }
 
     # -- FANTECH --
-    @{ Brand = "Fantech";     Name = "VX7 - config.ini";            Path = "C:\Program Files (x86)\FANTECH VX7 Gaming Mouse\config.ini";                 IsMacro = $false }
+    @{ Brand = "Fantech";     Name = "VX7 - config.ini";                 Path = "C:\Program Files (x86)\FANTECH VX7 Gaming Mouse\config.ini";                 IsMacro = $false }
 
     # -- AJ390R --
-    @{ Brand = "AJ390R";      Name = "AJ390R - data folder";        Path = "C:\Program Files (x86)\AJ390R Gaming Mouse\data";                            IsMacro = $false }
+    @{ Brand = "AJ390R";      Name = "AJ390R - data folder";             Path = "C:\Program Files (x86)\AJ390R Gaming Mouse\data";                            IsMacro = $false }
 )
 
 function Scan-ConfigFiles {
@@ -649,7 +653,7 @@ function Format-Bytes {
 }
 
 # --- 5. NOISE FILTER ---
-$IgnorePaths = @(
+ $IgnorePaths = @(
     "\Cache\", "\GPUCache\", "\Code Cache\",
     "\Session Storage\", "\IndexedDB\", "\Dictionaries\",
     "\Crashpad\", "\GrpcChann", "\CrashReports\",
@@ -663,11 +667,11 @@ function Test-IsNoise {
 }
 
 # --- 6. MACRO CONTENT DETECTION ---
-$RxMacroTiming = [regex]::new('"delay"\s*:\s*\d+', 'Compiled')
-$RxRepeat      = [regex]::new('"repeat"', 'Compiled')
-$RxSequence    = [regex]::new('"sequence"', 'Compiled')
+ $RxMacroTiming = [regex]::new('"delay"\s*:\s*\d+', 'Compiled')
+ $RxRepeat      = [regex]::new('"repeat"', 'Compiled')
+ $RxSequence    = [regex]::new('"sequence"', 'Compiled')
 
-$Script:FileCache = @{}
+ $Script:FileCache = @{}
 
 function Get-FileContentFast {
     param([string]$Path)
@@ -694,8 +698,8 @@ function Parse-ContentForMacros {
 }
 
 # --- 7. SOFTWARE PROFILES ---
-$SoftwareProfiles = @(
-    @{ Name="Logitech G HUB";           Paths=@("$env:LOCALAPPDATA\LGHUB","$env:APPDATA\LGHUB","$env:PROGRAMDATA\LGHUB");           Ext=@("*.json");       Keys=@("macros","assignments","commands"); Proc=@("LGHUB","LGHUB Agent") }
+ $SoftwareProfiles = @(
+    @{ Name="Logitech G HUB";           Paths=@("$env:LOCALAPPDATA\LGHUB","$env:APPDATA\LGHUB","$env:PROGRAMDATA\LGHUB","$env:APPDATA\LGHUB_BKP","C:\ProgramData\LGHUBData\applications"); Ext=@("*.json");       Keys=@("macros","assignments","commands"); Proc=@("LGHUB","LGHUB Agent") }
     @{ Name="Logitech Gaming Software (Legacy)"; Paths=@("$env:APPDATA\Logitech\Logitech Gaming Software","$env:LOCALAPPDATA\Logitech"); Ext=@("*.json","*.xml"); Keys=@("macro","assignment","script"); Proc=@("LCore") }
     @{ Name="Razer Synapse";            Paths=@("$env:APPDATA\Razer\Synapse3","$env:APPDATA\Razer\Synapse","$env:LOCALAPPDATA\Razer\Synapse3","$env:PROGRAMDATA\Razer\Synapse3","$env:LOCALAPPDATA\Razer\RazerAppEngine","$env:PROGRAMDATA\Razer\RazerAppEngine"); Ext=@("*.json","*.xml","*.ldb","*.log"); Keys=@("macro","Macro","action","Action","Script"); Proc=@("Razer Synapse","RazerCentralService","RazerStats") }
     @{ Name="SteelSeries GG";           Paths=@("$env:APPDATA\SteelSeries\SteelSeries GG","$env:LOCALAPPDATA\SteelSeries\SteelSeries GG","$env:LOCALAPPDATA\SteelSeries"); Ext=@("*.json"); Keys=@("macro","action","binding"); Proc=@("SteelSeriesGG","SteelSeriesEngine") }
@@ -705,7 +709,8 @@ $SoftwareProfiles = @(
     @{ Name="HyperX NGENUITY";          Paths=@("$env:LOCALAPPDATA\HyperX NGENUITY","$env:APPDATA\HyperX NGENUITY","$env:LOCALAPPDATA\HyperX"); Ext=@("*.json"); Keys=@("macro","action","binding"); Proc=@("NGENUITY") }
     @{ Name="Wooting";                  Paths=@("$env:LOCALAPPDATA\Wooting","$env:APPDATA\Wooting"); Ext=@("*.json"); Keys=@("macro","analog","action"); Proc=@("WootingUACHelper","Wooting") }
     @{ Name="Glorious CORE";            Paths=@("$env:LOCALAPPDATA\Glorious\Glorious CORE","$env:APPDATA\Glorious","$env:LOCALAPPDATA\Glorious"); Ext=@("*.json"); Keys=@("macro","key","assignment","sequence"); Proc=@("GloriousCORE") }
-    @{ Name="Bloody / A4Tech";          Paths=@("$env:LOCALAPPDATA\Bloody","$env:PROGRAMDATA\Bloody","$env:LOCALAPPDATA\A4Tech","$env:PROGRAMDATA\A4Tech"); Ext=@("*.dat","*.json","*.xml","*.bin"); Keys=@("macro","Macro","script","Script","shot"); Proc=@("Bloody7","A4Tech") }
+    @{ Name="Bloody / A4Tech";          Paths=@("$env:LOCALAPPDATA\Bloody","$env:PROGRAMDATA\Bloody","$env:LOCALAPPDATA\A4Tech","$env:PROGRAMDATA\A4Tech"); Ext=@("*.dat","*.json","*.xml","*.bin"); Keys=@("macro","Macro","script","Script","
+    shot"); Proc=@("Bloody7","A4Tech") }
     @{ Name="Cooler Master MasterPlus+";Paths=@("$env:LOCALAPPDATA\Cooler Master","$env:APPDATA\Cooler Master"); Ext=@("*.json","*.xml"); Keys=@("macro","assignment","action"); Proc=@("MasterPlus") }
     @{ Name="Roccat Swarm / Titan";     Paths=@("$env:APPDATA\Roccat","$env:LOCALAPPDATA\Roccat"); Ext=@("*.xml","*.json"); Keys=@("macro","Macro","sequence","command"); Proc=@("Roccat Swarm","Titan") }
     @{ Name="Redragon";                 Paths=@("$env:APPDATA\REDRAGON\GamingMouse","$env:APPDATA\Redragon","$env:LOCALAPPDATA\Redragon"); Ext=@("*.ini","*.json"); Keys=@("macro","Macro"); Proc=@("Redragon") }
@@ -755,9 +760,47 @@ function Get-ProcessStatus {
     }
     return $running.ToArray()
 }
+
+# --- 9. DYNAMIC WILDCARD PREFETCH SCANNER ---
+function Invoke-PrefetchScan {
+    $results = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $prefetchDir = "C:\Windows\Prefetch"
+    
+    if (-not (Test-Path $prefetchDir)) { 
+        return $results.ToArray() 
+    }
+
+    # Dynamically extract all unique process names from profiles to avoid hardcoded hashes
+    $execs = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($sw in $SoftwareProfiles) {
+        foreach ($p in $sw.Proc) {
+            if (-not [string]::IsNullOrEmpty($p)) {
+                $execs.Add("$p.EXE") | Out-Null
+            }
+        }
+    }
+
+    foreach ($exe in $execs) {
+        try {
+            # Wildcard search for any hash variant of the executable
+            $pfFiles = Get-ChildItem -Path $prefetchDir -Filter "$exe-*.pf" -ErrorAction SilentlyContinue
+            foreach ($pf in $pfFiles) {
+                $results.Add([PSCustomObject]@{
+                    Executable  = $exe
+                    FilePath    = $pf.FullName
+                    FileName    = $pf.Name
+                    SizeBytes   = $pf.Length
+                    LastModified = $pf.LastWriteTime
+                })
+            }
+        } catch {}
+    }
+    return $results.ToArray()
+}
+
 function Main {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-    $Host.UI.RawUI.WindowTitle = "MacroDetector v2.0"
+    $Host.UI.RawUI.WindowTitle = "MacroDetector v2.2"
     $cutoff = (Get-Date).AddMinutes(-20)
     $pcOwner = $env:USERNAME
 
@@ -863,29 +906,192 @@ function Main {
             Write-Host " $sw" -ForegroundColor DarkMagenta -NoNewline
             Write-Host " | $(Split-Path $f.FilePath -Leaf)" -ForegroundColor Yellow
             Write-Host "        $($f.FilePath)" -ForegroundColor DarkGray
-            $phits = $f.MacroHits -join ", "
-            Write-Host "        [" -ForegroundColor DarkGray -NoNewline; Write-Host "$phits" -ForegroundColor Yellow -NoNewline; Write-Host "]" -ForegroundColor DarkGray
-            $proc = Get-ProcessStatus -Names $f.Processes
-            if ($proc.Count -gt 0) {
-                Write-Host "        Process: $($proc -join ', ')" -ForegroundColor DarkMagenta
+            Write-Host "        Modified: $($f.LastModified)" -ForegroundColor DarkGray
+            if ($f.MacroHits.Count -gt 0) {
+                $hitStr = $f.MacroHits -join ", "
+                Write-Host "        Hits: $hitStr" -ForegroundColor Red
+            }
+            $procs = Get-ProcessStatus -Names $f.Processes
+            if ($procs.Count -gt 0) {
+                Write-Host "        RUNNING: $($procs -join ', ')" -ForegroundColor Red -BackgroundColor DarkRed
+            }
+            Write-Host ""
+        }
+    }
+
+    if ($otherFiles.Count -gt 0) {
+        Write-Host "  Recently Modified (no macro strings):" -ForegroundColor DarkGray
+        foreach ($f in ($otherFiles | Sort-Object LastModified -Descending)) {
+            Write-Host "    " -NoNewline
+            Write-Host "$(Split-Path $f.FilePath -Leaf)" -ForegroundColor DarkGray -NoNewline
+            Write-Host "  $($f.LastModified)" -ForegroundColor DarkGray
+        }
+    }
+
+    # 5. CONFIG FILE EXISTENCE MAP
+    $configs = Scan-ConfigFiles
+    $foundConfigs = $configs | Where-Object { $_.Exists }
+    $macroConfigs = $foundConfigs | Where-Object { $_.IsMacro }
+
+    if ($foundConfigs.Count -gt 0) {
+        Show-Section "Config File Map"
+        foreach ($c in ($foundConfigs | Sort-Object Brand, SoftwareName)) {
+            $tag = if ($c.IsMacro) { "[MACRO]" } else { "[DATA]"  }
+            $col = if ($c.IsMacro) { "Red"    } else { "DarkGray" }
+            Write-Host "    " -NoNewline
+            Write-Host "$tag" -ForegroundColor $col -NoNewline
+            Write-Host " " -NoNewline
+            Write-Host "$($c.Brand)" -ForegroundColor DarkMagenta -NoNewline
+            Write-Host " - " -NoNewline
+            Write-Host "$($c.SoftwareName)" -ForegroundColor White
+            Write-Host "        $($c.FilePath)" -ForegroundColor DarkGray
+            if ($c.LastModified) {
+                Write-Host "        Last Modified: $($c.LastModified)" -ForegroundColor DarkGray
+            }
+            if (-not $c.IsDirectory -and $c.SizeBytes -ne $null) {
+                Write-Host "        Size: $(Format-Bytes -bytes $c.SizeBytes)" -ForegroundColor DarkGray
+            }
+            if ($c.IsDirectory) {
+                try {
+                    $childCount = (Get-ChildItem -Path $c.FilePath -Recurse -File -ErrorAction SilentlyContinue).Count
+                    Write-Host "        Files inside: $childCount" -ForegroundColor DarkGray
+                } catch {}
+            }
+            Write-Host ""
+        }
+    }
+
+    # 6. RUNNING PROCESSES
+    Show-Section "Running Macro Software Processes"
+    $allProcNames = @()
+    foreach ($sw in $SoftwareProfiles) {
+        foreach ($p in $sw.Proc) { $allProcNames += $p }
+    }
+    $allProcNames = $allProcNames | Sort-Object -Unique
+    $foundRunning = $false
+    foreach ($pn in $allProcNames) {
+        $procs = Get-Process -Name $pn -ErrorAction SilentlyContinue
+        if ($procs) {
+            $foundRunning = $true
+            foreach ($p in $procs) {
+                Write-Host "    " -NoNewline
+                Write-Host "[RUNNING]" -ForegroundColor Red -BackgroundColor DarkRed -NoNewline
+                Write-Host " $($p.ProcessName)" -ForegroundColor White -NoNewline
+                Write-Host "  PID: $($p.Id)" -ForegroundColor DarkGray -NoNewline
+                Write-Host "  Memory: $(Format-Bytes -bytes $p.WorkingSet64)" -ForegroundColor DarkGray
             }
         }
     }
+    if (-not $foundRunning) {
+        Write-Host "    No macro software processes detected." -ForegroundColor DarkGray
+    }
 
-    # 5. SUMMARY
-    $totalMacro = $macroFiles.Count
-    if ($totalMacro -gt 0) {
-        Write-Host "`n  Macro Found:" -ForegroundColor Cyan
-        foreach ($f in ($macroFiles | Sort-Object LastModified -Descending)) {
-            Write-Host "    " -NoNewline; Write-Host "!" -ForegroundColor Red -NoNewline
-            Write-Host " $($f.Software)" -ForegroundColor DarkMagenta -NoNewline
-            Write-Host " | $($f.FilePath)" -ForegroundColor Yellow
+    # 7. WILDCARD PREFETCH ARTIFACTS SCAN
+    Show-Section "Prefetch Artifacts (Wildcard Scan)"
+    $prefetchResults = Invoke-PrefetchScan
+    if ($prefetchResults.Count -gt 0) {
+        foreach ($pf in ($prefetchResults | Sort-Object LastModified -Descending)) {
+            Write-Host "    " -NoNewline
+            Write-Host "[PREFETCH]" -ForegroundColor Yellow -NoNewline
+            Write-Host " $($pf.FileName)" -ForegroundColor White
+            Write-Host "        Size: $(Format-Bytes -bytes $pf.SizeBytes)" -ForegroundColor DarkGray
+            Write-Host "        Last Modified: $($pf.LastModified)" -ForegroundColor DarkGray
+            Write-Host ""
         }
     } else {
-        Write-Host "`n  No recent macro activity" -ForegroundColor DarkGray
+        Write-Host "    No macro software prefetch artifacts found." -ForegroundColor DarkGray
+    }
+
+    # 8. LGHUB_BKP DEEP SCAN
+    $bkpPath = "$env:APPDATA\LGHUB_BKP"
+    if (Test-Path $bkpPath) {
+        Show-Section "LGHUB Backup Folder Contents"
+        try {
+            $bkpItems = Get-ChildItem -Path $bkpPath -Recurse -ErrorAction SilentlyContinue
+            if ($bkpItems.Count -eq 0) {
+                Write-Host "    Folder exists but is empty." -ForegroundColor DarkGray
+            } else {
+                foreach ($item in ($bkpItems | Sort-Object LastWriteTime -Descending)) {
+                    $isDir = $item.PSIsContainer
+                    $typeLabel = if ($isDir) { "[DIR]" } else { "[FILE]" }
+                    $typeCol   = if ($isDir) { "DarkCyan" } else { "White" }
+                    Write-Host "    " -NoNewline
+                    Write-Host "$typeLabel" -ForegroundColor $typeCol -NoNewline
+                    Write-Host " $($item.Name)" -ForegroundColor White
+                    Write-Host "        $($item.FullName)" -ForegroundColor DarkGray
+                    Write-Host "        Modified: $($item.LastWriteTime)" -ForegroundColor DarkGray
+                    if (-not $isDir) {
+                        Write-Host "        Size: $(Format-Bytes -bytes $item.Length)" -ForegroundColor DarkGray
+                    }
+                    Write-Host ""
+                }
+            }
+        } catch {
+            Write-Host "    Error scanning backup folder." -ForegroundColor DarkGray
+        }
+    }
+
+    # 9. LGHUB ProgramData DEEP SCAN
+    $lgProgData = "C:\ProgramData\LGHUBData\applications"
+    if (Test-Path $lgProgData) {
+        Show-Section "G HUB ProgramData Applications"
+        try {
+            $appItems = Get-ChildItem -Path $lgProgData -Recurse -ErrorAction SilentlyContinue
+            if ($appItems.Count -eq 0) {
+                Write-Host "    Folder exists but is empty." -ForegroundColor DarkGray
+            } else {
+                foreach ($item in ($appItems | Sort-Object LastWriteTime -Descending | Select-Object -First 50)) {
+                    $isDir = $item.PSIsContainer
+                    $typeLabel = if ($isDir) { "[DIR]" } else { "[FILE]" }
+                    $typeCol   = if ($isDir) { "DarkCyan" } else { "White" }
+                    Write-Host "    " -NoNewline
+                    Write-Host "$typeLabel" -ForegroundColor $typeCol -NoNewline
+                    Write-Host " $($item.Name)" -ForegroundColor White
+                    Write-Host "        $($item.FullName)" -ForegroundColor DarkGray
+                    Write-Host "        Modified: $($item.LastWriteTime)" -ForegroundColor DarkGray
+                    if (-not $isDir) {
+                        Write-Host "        Size: $(Format-Bytes -bytes $item.Length)" -ForegroundColor DarkGray
+                    }
+                    Write-Host ""
+                }
+                $totalFiles = ($appItems | Where-Object { -not $_.PSIsContainer }).Count
+                if ($totalFiles -gt 50) {
+                    Write-Host "    ... and $($totalFiles - 50) more files." -ForegroundColor DarkGray
+                }
+            }
+        } catch {
+            Write-Host "    Error scanning ProgramData (requires Admin)." -ForegroundColor DarkGray
+        }
+    }
+
+    # 10. SUMMARY
+    Show-Section "Summary"
+    $macroDirCount  = ($macroConfigs | Where-Object { $_.IsDirectory }).Count
+    $macroFileCount = ($macroConfigs | Where-Object { -not $_.IsDirectory }).Count
+    $runningCount   = 0
+    foreach ($pn in $allProcNames) { $runningCount += (Get-Process -Name $pn -ErrorAction SilentlyContinue).Count }
+
+    Show-Field "Mice detected"       "$($recentMice.Count) recent" "White"
+    Show-Field "Software installed"  "$($installed.Count) packages" "White"
+    Show-Field "Macro dirs found"    "$macroDirCount"                if ($macroDirCount -gt 0) { "Red" } else { "Green" }
+    Show-Field "Macro files found"   "$macroFileCount"              if ($macroFileCount -gt 0) { "Red" } else { "Green" }
+    Show-Field "Macro content hits"  "$($macroFiles.Count)"         if ($macroFiles.Count -gt 0) { "Red" } else { "Green" }
+    Show-Field "Running processes"   "$runningCount"                 if ($runningCount -gt 0) { "Red" } else { "Green" }
+    Show-Field "Prefetch artifacts"  "$($prefetchResults.Count)"     if ($prefetchResults.Count -gt 0) { "Yellow" } else { "Green" }
+
+    Write-Host ""
+    if ($macroFiles.Count -gt 0 -or $runningCount -gt 0) {
+        Show-Warn "Macro software activity detected on this system."
+    } elseif ($macroConfigs.Count -gt 0 -or $prefetchResults.Count -gt 0) {
+        Show-Alert "Macro software traces found but no active usage detected."
+    } else {
+        Show-Good "No macro software traces detected."
     }
 
     Write-Host ""
+    Show-Separator
+    Write-Host ""
 }
 
+# --- ENTRY POINT ---
 Main
