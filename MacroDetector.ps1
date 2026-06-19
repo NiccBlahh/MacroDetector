@@ -618,14 +618,21 @@ function Find-ExplicitMacrosInFile {
     $low = $txt.ToLower()
     # Direct definitions of macros
     if ($low.Contains('"macro"') -or $low.Contains('"macros"') -or $low.Contains('"macromanager"') -or $low.Contains('"macrodata"')) { return $true }
+    if ($low.Contains('<macro') -or $low.Contains('<macros') -or $low.Contains('<action') -or $low.Contains('<delay')) { return $true }
+    if ($low.Contains('[macro') -or $low.Contains('macro=')) { return $true }
+    
     # G HUB specific
     if ($low.Contains('"assignments"') -and ($low.Contains('"delay"') -or $low.Contains('"script"'))) { return $true }
-    # Razer / Generic specific
-    if ($low.Contains('"sequence"') -and $low.Contains('"delay"')) { return $true }
-    if ($low.Contains('"script"') -and $low.Contains('"delay"')) { return $true }
     
-    # Generic specific
-    if ($low.Contains('::') -and $low.Contains('send')) { return $true } # Basic AHK heuristic
+    # Razer / Generic specific
+    if ($low.Contains('sequence') -and $low.Contains('delay')) { return $true }
+    if ($low.Contains('script') -and $low.Contains('delay')) { return $true }
+    if ($low.Contains('macro') -and $low.Contains('delay')) { return $true }
+    if ($low.Contains('macro') -and $low.Contains('action')) { return $true }
+    
+    # Basic AHK/Script heuristics
+    if ($low.Contains('::') -and $low.Contains('send')) { return $true }
+    if ($low.Contains('click') -and $low.Contains('sleep')) { return $true }
     
     return $false
 }
@@ -904,7 +911,15 @@ function Main {
                         Write-Host "$($mf.LastModified)" -ForegroundColor White
                     }
                 } else {
-                    Write-Host "        -> Folder was modified, but exact macro file not changed in <20m." -ForegroundColor DarkGray
+                    $allModFiles = Get-ChildItem -Path $c.FilePath -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $cutoff }
+                    if ($allModFiles.Count -gt 0) {
+                        Write-Host "        [?] FOLDER ACTIVITY DETECTED (NO EXPLICIT MACRO STRINGS FOUND IN FILES):" -ForegroundColor Yellow
+                        foreach ($mdf in $allModFiles) {
+                            Write-Host "            - $($mdf.Name)  (Modified: $($mdf.LastWriteTime))" -ForegroundColor DarkGray
+                        }
+                    } else {
+                        Write-Host "        -> Folder timestamp changed, but no specific files inside were modified." -ForegroundColor DarkGray
+                    }
                 }
             } else {
                 # It's a single file that was modified
@@ -916,7 +931,12 @@ function Main {
                     Write-Host "            MODIFIED: " -NoNewline -ForegroundColor DarkGray
                     Write-Host "$($c.LastModified)" -ForegroundColor White
                 } else {
-                    Write-Host "        -> File was modified, but contains no macro strings." -ForegroundColor DarkGray
+                    Write-Host "        [?] CONFIG FILE MODIFIED (NO EXPLICIT MACRO STRINGS FOUND): " -NoNewline -ForegroundColor Yellow
+                    Write-Host "$(Split-Path $c.FilePath -Leaf)" -ForegroundColor White
+                    Write-Host "            FULL PATH: " -NoNewline -ForegroundColor DarkGray
+                    Write-Host "$($c.FilePath)" -ForegroundColor DarkGray
+                    Write-Host "            MODIFIED: " -NoNewline -ForegroundColor DarkGray
+                    Write-Host "$($c.LastModified)" -ForegroundColor White
                 }
             }
             Write-Host ""
