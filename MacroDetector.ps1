@@ -5,7 +5,7 @@
     A comprehensive forensic mouse device and macro software configuration analysis tool.
 .NOTES
     Compatible with Windows 10 and Windows 11. Requires Administrative privileges for full registry and Prefetch analysis.
-    v2.2 - Replaced hardcoded Prefetch hash with dynamic wildcard scanner for all target executables.
+    v2.3 - Fixed summary color logic, enforced 20-minute cutoff on all deep scans and file maps.
 #>
 
 # --- BRAND DETECTION ENGINE ---
@@ -175,7 +175,6 @@ function Get-RegistryHistory {
 function Get-BluetoothDevices {
     $results = @()
 
-    # Classic Bluetooth
     $btKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Devices")
     if ($btKey) {
         foreach ($key in $btKey.GetSubKeyNames()) {
@@ -213,7 +212,6 @@ function Get-BluetoothDevices {
         $btKey.Close()
     }
 
-    # Bluetooth LE
     $bleKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Enum\BTHLE")
     if ($bleKey) {
         foreach ($cls in $bleKey.GetSubKeyNames()) {
@@ -247,7 +245,6 @@ function Get-BluetoothDevices {
         $bleKey.Close()
     }
 
-    # Bluetooth ENUM (additional scan path)
     $btEnumKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Enum\BTH")
     if ($btEnumKey) {
         foreach ($cls in $btEnumKey.GetSubKeyNames()) {
@@ -410,7 +407,6 @@ function Scan-InstalledSoftware {
 
 # --- 3. CONFIG FILE ENTRIES ---
  $ConfigEntries = @(
-
     # -- LOGITECH --
     @{ Brand = "Logitech";    Name = "G HUB - settings.db";              Path = "$env:LOCALAPPDATA\LGHUB\settings.db";                                          IsMacro = $true  }
     @{ Brand = "Logitech";    Name = "G HUB - Macros folder";            Path = "$env:LOCALAPPDATA\LGHUB";                                                      IsMacro = $true  }
@@ -428,7 +424,7 @@ function Scan-InstalledSoftware {
     @{ Brand = "Razer";       Name = "Synapse 3 - Accounts";            Path = "$env:APPDATA\Razer\Synapse3\Accounts";                                         IsMacro = $true  }
     @{ Brand = "Razer";       Name = "Razer Central - Accounts";        Path = "$env:APPDATA\Razer\Razer Central\Accounts";                                    IsMacro = $false }
 
-    # -- RAZER - LOCAL APPDATA (primary new detections) --
+    # -- RAZER - LOCAL APPDATA --
     @{ Brand = "Razer";       Name = "Razer - LocalAppData root";       Path = "$env:LOCALAPPDATA\Razer";                                                      IsMacro = $false }
     @{ Brand = "Razer";       Name = "RazerAppEngine - root";           Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine";                                       IsMacro = $false }
     @{ Brand = "Razer";       Name = "RazerAppEngine - Cache";          Path = "$env:LOCALAPPDATA\Razer\RazerAppEngine\Cache";                                  IsMacro = $false }
@@ -596,28 +592,6 @@ function Scan-ConfigFiles {
     return $results
 }
 
-# -- RAZER DIRECTORY DEEP SCAN --
-function Scan-RazerDirs {
-    $results = @()
-    $paths = @("$env:LOCALAPPDATA\Razer", "$env:APPDATA\Razer", "$env:PROGRAMDATA\Razer")
-    foreach ($root in $paths) {
-        if (-not (Test-Path $root)) { continue }
-        try {
-            $items = Get-ChildItem -Path $root -Recurse -ErrorAction SilentlyContinue
-            foreach ($item in $items) {
-                $results += [PSCustomObject]@{
-                    FullPath     = $item.FullName
-                    Name         = $item.Name
-                    IsDirectory  = $item.PSIsContainer
-                    LastModified = $item.LastWriteTime
-                    SizeBytes    = if ($item.PSIsContainer) { $null } else { $item.Length }
-                }
-            }
-        } catch {}
-    }
-    return $results
-}
-
 # --- 4. RENDERING ENGINE ---
 function Show-Separator {
     param([char]$ch = [char]0x2500, [int]$width = 72)
@@ -671,8 +645,6 @@ function Test-IsNoise {
  $RxRepeat      = [regex]::new('"repeat"', 'Compiled')
  $RxSequence    = [regex]::new('"sequence"', 'Compiled')
 
- $Script:FileCache = @{}
-
 function Get-FileContentFast {
     param([string]$Path)
     try { return [System.IO.File]::ReadAllText($Path) } catch { return $null }
@@ -709,8 +681,7 @@ function Parse-ContentForMacros {
     @{ Name="HyperX NGENUITY";          Paths=@("$env:LOCALAPPDATA\HyperX NGENUITY","$env:APPDATA\HyperX NGENUITY","$env:LOCALAPPDATA\HyperX"); Ext=@("*.json"); Keys=@("macro","action","binding"); Proc=@("NGENUITY") }
     @{ Name="Wooting";                  Paths=@("$env:LOCALAPPDATA\Wooting","$env:APPDATA\Wooting"); Ext=@("*.json"); Keys=@("macro","analog","action"); Proc=@("WootingUACHelper","Wooting") }
     @{ Name="Glorious CORE";            Paths=@("$env:LOCALAPPDATA\Glorious\Glorious CORE","$env:APPDATA\Glorious","$env:LOCALAPPDATA\Glorious"); Ext=@("*.json"); Keys=@("macro","key","assignment","sequence"); Proc=@("GloriousCORE") }
-    @{ Name="Bloody / A4Tech";          Paths=@("$env:LOCALAPPDATA\Bloody","$env:PROGRAMDATA\Bloody","$env:LOCALAPPDATA\A4Tech","$env:PROGRAMDATA\A4Tech"); Ext=@("*.dat","*.json","*.xml","*.bin"); Keys=@("macro","Macro","script","Script","
-    shot"); Proc=@("Bloody7","A4Tech") }
+    @{ Name="Bloody / A4Tech";          Paths=@("$env:LOCALAPPDATA\Bloody","$env:PROGRAMDATA\Bloody","$env:LOCALAPPDATA\A4Tech","$env:PROGRAMDATA\A4Tech"); Ext=@("*.dat","*.json","*.xml","*.bin"); Keys=@("macro","Macro","script","Script","shot"); Proc=@("Bloody7","A4Tech") }
     @{ Name="Cooler Master MasterPlus+";Paths=@("$env:LOCALAPPDATA\Cooler Master","$env:APPDATA\Cooler Master"); Ext=@("*.json","*.xml"); Keys=@("macro","assignment","action"); Proc=@("MasterPlus") }
     @{ Name="Roccat Swarm / Titan";     Paths=@("$env:APPDATA\Roccat","$env:LOCALAPPDATA\Roccat"); Ext=@("*.xml","*.json"); Keys=@("macro","Macro","sequence","command"); Proc=@("Roccat Swarm","Titan") }
     @{ Name="Redragon";                 Paths=@("$env:APPDATA\REDRAGON\GamingMouse","$env:APPDATA\Redragon","$env:LOCALAPPDATA\Redragon"); Ext=@("*.ini","*.json"); Keys=@("macro","Macro"); Proc=@("Redragon") }
@@ -763,6 +734,7 @@ function Get-ProcessStatus {
 
 # --- 9. DYNAMIC WILDCARD PREFETCH SCANNER ---
 function Invoke-PrefetchScan {
+    param([datetime]$Cutoff)
     $results = [System.Collections.Generic.List[PSCustomObject]]::new()
     $prefetchDir = "C:\Windows\Prefetch"
     
@@ -770,7 +742,6 @@ function Invoke-PrefetchScan {
         return $results.ToArray() 
     }
 
-    # Dynamically extract all unique process names from profiles to avoid hardcoded hashes
     $execs = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($sw in $SoftwareProfiles) {
         foreach ($p in $sw.Proc) {
@@ -782,16 +753,17 @@ function Invoke-PrefetchScan {
 
     foreach ($exe in $execs) {
         try {
-            # Wildcard search for any hash variant of the executable
             $pfFiles = Get-ChildItem -Path $prefetchDir -Filter "$exe-*.pf" -ErrorAction SilentlyContinue
             foreach ($pf in $pfFiles) {
-                $results.Add([PSCustomObject]@{
-                    Executable  = $exe
-                    FilePath    = $pf.FullName
-                    FileName    = $pf.Name
-                    SizeBytes   = $pf.Length
-                    LastModified = $pf.LastWriteTime
-                })
+                if ($pf.LastWriteTime -ge $Cutoff) {
+                    $results.Add([PSCustomObject]@{
+                        Executable  = $exe
+                        FilePath    = $pf.FullName
+                        FileName    = $pf.Name
+                        SizeBytes   = $pf.Length
+                        LastModified = $pf.LastWriteTime
+                    })
+                }
             }
         } catch {}
     }
@@ -800,7 +772,7 @@ function Invoke-PrefetchScan {
 
 function Main {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-    $Host.UI.RawUI.WindowTitle = "MacroDetector v2.2"
+    $Host.UI.RawUI.WindowTitle = "MacroDetector v2.3"
     $cutoff = (Get-Date).AddMinutes(-20)
     $pcOwner = $env:USERNAME
 
@@ -875,7 +847,7 @@ function Main {
         }
     }
 
-    # 3. SOFTWARE DIRECTORIES (profiles with found paths)
+    # 3. SOFTWARE DIRECTORIES
     $liveSw = @()
     foreach ($sw in $SoftwareProfiles) {
         foreach ($p in $sw.Paths) {
@@ -889,7 +861,7 @@ function Main {
         }
     }
 
-    # 4. CONTENT SCAN (macro file contents, last 20 min)
+    # 4. CONTENT SCAN (last 20 min)
     $scanResults = Invoke-ContentScan -RecentMins 20
     $macroFiles = $scanResults | Where-Object { $_.HasMacro }
     $otherFiles = $scanResults | Where-Object { -not $_.HasMacro }
@@ -928,13 +900,13 @@ function Main {
         }
     }
 
-    # 5. CONFIG FILE EXISTENCE MAP
+    # 5. CONFIG FILE EXISTENCE MAP (Filtered to last 20 mins)
     $configs = Scan-ConfigFiles
-    $foundConfigs = $configs | Where-Object { $_.Exists }
+    $foundConfigs = $configs | Where-Object { $_.Exists -and $_.LastModified -and $_.LastModified -ge $cutoff }
     $macroConfigs = $foundConfigs | Where-Object { $_.IsMacro }
 
     if ($foundConfigs.Count -gt 0) {
-        Show-Section "Config File Map"
+        Show-Section "Config File Map (Last 20 Mins)"
         foreach ($c in ($foundConfigs | Sort-Object Brand, SoftwareName)) {
             $tag = if ($c.IsMacro) { "[MACRO]" } else { "[DATA]"  }
             $col = if ($c.IsMacro) { "Red"    } else { "DarkGray" }
@@ -986,9 +958,9 @@ function Main {
         Write-Host "    No macro software processes detected." -ForegroundColor DarkGray
     }
 
-    # 7. WILDCARD PREFETCH ARTIFACTS SCAN
-    Show-Section "Prefetch Artifacts (Wildcard Scan)"
-    $prefetchResults = Invoke-PrefetchScan
+    # 7. WILDCARD PREFETCH ARTIFACTS SCAN (Filtered to last 20 mins)
+    Show-Section "Prefetch Artifacts (Last 20 Mins)"
+    $prefetchResults = Invoke-PrefetchScan -Cutoff $cutoff
     if ($prefetchResults.Count -gt 0) {
         foreach ($pf in ($prefetchResults | Sort-Object LastModified -Descending)) {
             Write-Host "    " -NoNewline
@@ -999,17 +971,17 @@ function Main {
             Write-Host ""
         }
     } else {
-        Write-Host "    No macro software prefetch artifacts found." -ForegroundColor DarkGray
+        Write-Host "    No macro software prefetch artifacts modified in the last 20 minutes." -ForegroundColor DarkGray
     }
 
-    # 8. LGHUB_BKP DEEP SCAN
+    # 8. LGHUB_BKP DEEP SCAN (Filtered to last 20 mins)
     $bkpPath = "$env:APPDATA\LGHUB_BKP"
     if (Test-Path $bkpPath) {
-        Show-Section "LGHUB Backup Folder Contents"
+        Show-Section "LGHUB Backup Folder Contents (Last 20 Mins)"
         try {
-            $bkpItems = Get-ChildItem -Path $bkpPath -Recurse -ErrorAction SilentlyContinue
+            $bkpItems = Get-ChildItem -Path $bkpPath -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $cutoff }
             if ($bkpItems.Count -eq 0) {
-                Write-Host "    Folder exists but is empty." -ForegroundColor DarkGray
+                Write-Host "    No items modified in the last 20 minutes." -ForegroundColor DarkGray
             } else {
                 foreach ($item in ($bkpItems | Sort-Object LastWriteTime -Descending)) {
                     $isDir = $item.PSIsContainer
@@ -1031,16 +1003,16 @@ function Main {
         }
     }
 
-    # 9. LGHUB ProgramData DEEP SCAN
+    # 9. LGHUB ProgramData DEEP SCAN (Filtered to last 20 mins)
     $lgProgData = "C:\ProgramData\LGHUBData\applications"
     if (Test-Path $lgProgData) {
-        Show-Section "G HUB ProgramData Applications"
+        Show-Section "G HUB ProgramData Applications (Last 20 Mins)"
         try {
-            $appItems = Get-ChildItem -Path $lgProgData -Recurse -ErrorAction SilentlyContinue
+            $appItems = Get-ChildItem -Path $lgProgData -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $cutoff }
             if ($appItems.Count -eq 0) {
-                Write-Host "    Folder exists but is empty." -ForegroundColor DarkGray
+                Write-Host "    No items modified in the last 20 minutes." -ForegroundColor DarkGray
             } else {
-                foreach ($item in ($appItems | Sort-Object LastWriteTime -Descending | Select-Object -First 50)) {
+                foreach ($item in ($appItems | Sort-Object LastWriteTime -Descending)) {
                     $isDir = $item.PSIsContainer
                     $typeLabel = if ($isDir) { "[DIR]" } else { "[FILE]" }
                     $typeCol   = if ($isDir) { "DarkCyan" } else { "White" }
@@ -1053,10 +1025,6 @@ function Main {
                         Write-Host "        Size: $(Format-Bytes -bytes $item.Length)" -ForegroundColor DarkGray
                     }
                     Write-Host ""
-                }
-                $totalFiles = ($appItems | Where-Object { -not $_.PSIsContainer }).Count
-                if ($totalFiles -gt 50) {
-                    Write-Host "    ... and $($totalFiles - 50) more files." -ForegroundColor DarkGray
                 }
             }
         } catch {
@@ -1073,11 +1041,11 @@ function Main {
 
     Show-Field "Mice detected"       "$($recentMice.Count) recent" "White"
     Show-Field "Software installed"  "$($installed.Count) packages" "White"
-    Show-Field "Macro dirs found"    "$macroDirCount"                if ($macroDirCount -gt 0) { "Red" } else { "Green" }
-    Show-Field "Macro files found"   "$macroFileCount"              if ($macroFileCount -gt 0) { "Red" } else { "Green" }
-    Show-Field "Macro content hits"  "$($macroFiles.Count)"         if ($macroFiles.Count -gt 0) { "Red" } else { "Green" }
-    Show-Field "Running processes"   "$runningCount"                 if ($runningCount -gt 0) { "Red" } else { "Green" }
-    Show-Field "Prefetch artifacts"  "$($prefetchResults.Count)"     if ($prefetchResults.Count -gt 0) { "Yellow" } else { "Green" }
+    Show-Field "Macro dirs found"    "$macroDirCount"                $(if ($macroDirCount -gt 0) { "Red" } else { "Green" })
+    Show-Field "Macro files found"   "$macroFileCount"              $(if ($macroFileCount -gt 0) { "Red" } else { "Green" })
+    Show-Field "Macro content hits"  "$($macroFiles.Count)"         $(if ($macroFiles.Count -gt 0) { "Red" } else { "Green" })
+    Show-Field "Running processes"   "$runningCount"                 $(if ($runningCount -gt 0) { "Red" } else { "Green" })
+    Show-Field "Prefetch artifacts"  "$($prefetchResults.Count)"     $(if ($prefetchResults.Count -gt 0) { "Yellow" } else { "Green" })
 
     Write-Host ""
     if ($macroFiles.Count -gt 0 -or $runningCount -gt 0) {
